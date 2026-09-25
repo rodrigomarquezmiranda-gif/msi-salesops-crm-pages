@@ -756,7 +756,7 @@
           </div>
           <div class="field" style="margin-bottom:0;flex:2">
             <label>Producto (opcional — dejalo vacío para ver toda la categoría)</label>
-            <input type="text" id="rotcompare-search" placeholder="Buscar por modelo o descripción..." oninput="updateRotCompareProductOptions()" style="margin-bottom:6px" />
+            <input type="text" id="rotcompare-search" placeholder="Buscar por modelo o descripción..." oninput="_debounceRotCompareSearch()" style="margin-bottom:6px" />
             <select id="rotcompare-product" onchange="renderRotCompareTab()">
               <option value="">(toda la categoría)</option>
             </select>
@@ -1489,7 +1489,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '25.09.26.2';
+const APP_VERSION = '25.09.26.3';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -11321,6 +11321,14 @@ function onRotcompareCategoryChange() {
   updateRotCompareProductOptions();
 }
 
+let _rotCompareSearchTimer = null;
+function _debounceRotCompareSearch() {
+  // updateRotCompareProductOptions() recalcula rotación completa (todas las semanas,
+  // todos los proveedores) para cada producto que matchea — hacerlo en cada tecla tipeada
+  // se sentía lento. Esperamos una pausa breve de tipeo antes de recalcular.
+  clearTimeout(_rotCompareSearchTimer);
+  _rotCompareSearchTimer = setTimeout(updateRotCompareProductOptions, 250);
+}
 function updateRotCompareProductOptions() {
   const catFilter = document.getElementById('rotcompare-category').value;
   const q = (document.getElementById('rotcompare-search').value || '').toLowerCase();
