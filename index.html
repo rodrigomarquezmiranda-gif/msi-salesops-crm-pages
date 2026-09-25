@@ -1489,7 +1489,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '25.09.26.1';
+const APP_VERSION = '25.09.26.2';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -11461,18 +11461,25 @@ function renderRotCompareTab() {
   const catFilter = document.getElementById('rotcompare-category').value;
   const monthKey  = rotcomparePeriod || 'all';
   const modelKey  = document.getElementById('rotcompare-product').value;
+  // Texto libre tipeado en "Producto" — si el usuario no llegó a elegir una opción puntual
+  // del desplegable, igual filtramos la tabla de la categoría por ese texto (antes se
+  // ignoraba y mostraba toda la categoría entera).
+  const searchQ   = (document.getElementById('rotcompare-search').value || '').trim().toLowerCase();
   const wrap = document.getElementById('rotcompare-content');
 
-  if(catFilter === 'all' && !modelKey) {
+  if(catFilter === 'all' && !modelKey && !searchQ) {
     wrap.innerHTML = `<div class="empty-state"><i class="ti ti-arrows-shuffle"></i><p>Elegí una categoría o buscá un producto para ver su rotación.</p></div>`;
     return;
   }
 
   // Collect all groups for this category
   const allGroups = getProductComparisonGroups();
-  const catGroups = catFilter === 'all'
+  let catGroups = catFilter === 'all'
     ? (modelKey ? allGroups.filter(g => g.key === modelKey) : allGroups)
     : allGroups.filter(g => g.category === catFilter);
+  if(!modelKey && searchQ) {
+    catGroups = catGroups.filter(g => g.label.toLowerCase().includes(searchQ) || g.key.toLowerCase().includes(searchQ));
+  }
 
   // Aggregate each product across all distributors for the selected period
   const productRows = catGroups.map(g => {
