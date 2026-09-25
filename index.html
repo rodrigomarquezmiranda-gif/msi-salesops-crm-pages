@@ -1489,7 +1489,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '25.09.26.3';
+const APP_VERSION = '25.09.26.4';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -8850,14 +8850,38 @@ function classifyProductCategory(description) {
 // dentro de la descripción. Lo extraemos y lo usamos como clave para agrupar el
 // mismo producto entre proveedores, aunque el resto del texto no coincida.
 const _SPEC_UNITS = new Set(['HZ','MHZ','GHZ','MS','G','GB','T','TB','W','MM','V','A','RPM','KB','MB']);
+// Placas de video: la familia (RTX/GTX/RX) y el número de chip casi siempre vienen como
+// DOS palabras separadas ("RTX 3050"), así que nunca formaban un solo token letra+número
+// y el producto quedaba sin agrupar entre proveedores (cada uno quedaba como fila aparte).
+// Los fusionamos en un token propio "RTX3050" para que sí se agrupen.
+const _GPU_FAMILY_RE = /\b(RTX|GTX|RX|ARC)\s?-?\s?(\d{3,5})\s?(TI|SUPER|XT|XTX)?\b/;
+// Variantes de cooler/edición que SÍ distinguen SKUs distintos del mismo chip (no hay que
+// mezclarlas entre sí) — se busca la más específica primero, así "GAMING X TRIO" no
+// termina matcheando solo "GAMING".
+const _GPU_VARIANT_KEYWORDS = [
+  'VENTUS 3X','VENTUS 2X','VENTUS 1X','VENTUS',
+  'GAMING X TRIO','GAMING X SLIM','GAMING X','GAMING TRIO','GAMING',
+  'SUPRIM X','SUPRIM','EXPERT','SHADOW','TWIN FROZR','AERO ITX','AERO','LP'
+];
 function extractModelTokens(description) {
   let norm = String(description||'').toUpperCase();
+  // "GeForceRTX"/"GeForceGTX" pegado sin espacio (típico de algunos reportes) rompe el \b
+  // del regex de familia de chip de abajo — separamos antes de todo lo demás.
+  norm = norm.replace(/GEFORCE\s*(RTX|GTX)/g, 'GEFORCE $1');
   // Strip connectivity specs before tokenising (2xHDMI, 1xDP, 3xUSB, etc.)
   norm = norm.replace(/\b\d+\s*[Xx]\s*(?:HDMI|DP|USB|VGA|DVI|DISPLAYPORT|THUNDERBOLT|TYPE[-\s]?C)\b/g, ' ');
   // Strip response time + refresh rate specs (1ms, 144hz)
   norm = norm.replace(/\b\d+(?:[.,]\d+)?\s*(?:MS|HZ|MHZ|GHZ)\b/g, ' ');
   const raw = norm.match(/[A-Z0-9][A-Z0-9-]{3,}/g) || [];
-  return raw.filter(t => /\d/.test(t) && /[A-Z]/.test(t));
+  const tokens = raw.filter(t => /\d/.test(t) && /[A-Z]/.test(t));
+  const chipMatch = norm.match(_GPU_FAMILY_RE);
+  if(chipMatch) {
+    let fused = chipMatch[1] + chipMatch[2] + (chipMatch[3] || '');
+    const variant = _GPU_VARIANT_KEYWORDS.find(v => norm.includes(v));
+    if(variant) fused += '_' + variant.replace(/\s+/g, '');
+    tokens.push(fused);
+  }
+  return tokens;
 }
 function isPureSpecToken(t) {
   // Only treat as spec if the letter suffix is a known unit — so model codes like
