@@ -1019,6 +1019,18 @@
 
       <!-- IA -->
       <div id="tab-ia" class="tab-pane">
+        <div class="ai-box" style="margin-bottom:1.25rem">
+          <div class="ai-box-header"><i class="ti ti-message-chatbot"></i> Consultas sobre tus datos</div>
+          <div style="font-size:13px;color:var(--text2);margin-bottom:10px">Preguntá en lenguaje natural sobre compras, precios o ranking de clientes — ej. "¿Segal compró A520 en la última semana? ¿dónde y a qué precio?". Los datos nunca salen de tu sesión salvo el resultado puntual de cada consulta.</div>
+          <div id="ai-chat-log" style="display:flex;flex-direction:column;gap:10px;max-height:420px;overflow-y:auto;margin-bottom:10px"></div>
+          <div id="ai-chat-loading" style="display:none;margin-bottom:10px"><div class="loading-row"><div class="spinner"></div> Pensando...</div></div>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="ai-chat-input" placeholder="Preguntá algo sobre tus datos..."
+              style="flex:1;padding:9px 12px;border-radius:var(--radius);border:0.5px solid var(--border2);background:var(--bg2);color:var(--text);font-size:0.9rem"
+              onkeydown="if(event.key==='Enter')sendAiChatMessage()" />
+            <button class="btn btn-primary" onclick="sendAiChatMessage()"><i class="ti ti-send" style="font-size:14px"></i></button>
+          </div>
+        </div>
         <div class="upload-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
           <i class="ti ti-cloud-upload"></i>
           <p><b>Hacé click o arrastrá un archivo</b> para que la IA lo analice</p>
@@ -1489,7 +1501,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '25.09.26.4';
+const APP_VERSION = '25.09.26.5';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -2176,6 +2188,85 @@ async function resetBrandLogo() {
   applyBrandLogo();
 }
 function getApiKey() { return sessionStorage.getItem('salesops_apikey') || ''; }
+
+// ─── Consultas IA — chat con tool use contra el Worker seguro ────────────────
+// URL del Worker de cloudflare-worker/crm-ai-proxy/ — actualizar después de deployarlo
+// (ver README.md de esa carpeta). Mientras diga "REEMPLAZAR" el chat avisa que falta configurar.
+const CRM_AI_WORKER_URL = 'REEMPLAZAR_CON_URL_DEL_WORKER';
+const CRM_AI_SYSTEM_PROMPT = `Sos el asistente de datos del CRM de MSI Argentina (distribución B2B de hardware).
+Respondé preguntas sobre compras de clientes, precios de venta y ranking de clientes usando SIEMPRE las herramientas disponibles — nunca inventes cifras ni nombres que no vengan de una herramienta.
+Si una herramienta no encuentra resultados, decilo claramente en vez de suponer.
+Formato de respuesta:
+1. Primero respondé la pregunta puntual con los datos exactos (fechas, distribuidor, cantidades, precios en USD).
+2. Si los datos devueltos por las herramientas muestran algo que valga la pena señalar (ej. un precio bastante más alto o bajo que en otros distribuidores, una caída o salto notorio, algo que se repite en varios clientes), agregá al final un párrafo corto que empiece con "💡 " con esa observación — pero SOLO si realmente hay algo notable en los datos que devolviste, nunca por rellenar. Si no hay nada llamativo, no agregues ese párrafo.
+Respondé siempre en español, tono directo y profesional, sin rodeos.`;
+
+let _aiChatHistory = []; // [{role:'user'|'assistant', content: string | array}]
+
+function _renderAiChatLog() {
+  const log = document.getElementById('ai-chat-log');
+  if(!log) return;
+  log.innerHTML = _aiChatHistory.filter(m => typeof m.content === 'string').map(m => `
+    <div style="align-self:${m.role==='user'?'flex-end':'flex-start'};max-width:85%;background:${m.role==='user'?'var(--brand)':'var(--bg2)'};color:${m.role==='user'?'#fff':'var(--text)'};padding:9px 13px;border-radius:12px;font-size:0.88rem;line-height:1.5;white-space:pre-wrap">${esc(m.content)}</div>
+  `).join('');
+  log.scrollTop = log.scrollHeight;
+}
+
+async function _callAiWorker(messages) {
+  const res = await fetch(CRM_AI_WORKER_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1200,
+      system: CRM_AI_SYSTEM_PROMPT,
+      tools: CRM_AI_TOOLS,
+      messages
+    })
+  });
+  const data = await res.json();
+  if(data.error) throw new Error(data.error.message || 'Error del Worker');
+  return data;
+}
+
+async function sendAiChatMessage() {
+  if(CRM_AI_WORKER_URL.includes('REEMPLAZAR')) {
+    _alert('Falta configurar el Worker de Consultas IA — ver cloudflare-worker/crm-ai-proxy/README.md', {type:'warning', title:'Sin configurar'});
+    return;
+  }
+  const input = document.getElementById('ai-chat-input');
+  const text = (input.value || '').trim();
+  if(!text) return;
+  input.value = '';
+  _aiChatHistory.push({ role:'user', content: text });
+  _renderAiChatLog();
+  document.getElementById('ai-chat-loading').style.display = '';
+  try {
+    let apiMessages = _aiChatHistory.map(m => ({ role:m.role, content:m.content }));
+    let loops = 0;
+    while(loops++ < 5) {
+      const data = await _callAiWorker(apiMessages);
+      const toolUses = (data.content||[]).filter(c => c.type === 'tool_use');
+      if(!toolUses.length || data.stop_reason !== 'tool_use') {
+        const finalText = (data.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('\n').trim();
+        _aiChatHistory.push({ role:'assistant', content: finalText || '(sin respuesta)' });
+        break;
+      }
+      // Ejecutar cada herramienta pedida y devolver los resultados en el mismo turno
+      apiMessages.push({ role:'assistant', content:data.content });
+      const toolResults = toolUses.map(tu => ({
+        type: 'tool_result',
+        tool_use_id: tu.id,
+        content: JSON.stringify(_executeAiTool(tu.name, tu.input))
+      }));
+      apiMessages.push({ role:'user', content: toolResults });
+    }
+  } catch(e) {
+    _aiChatHistory.push({ role:'assistant', content: 'Error: ' + e.message });
+  }
+  document.getElementById('ai-chat-loading').style.display = 'none';
+  _renderAiChatLog();
+}
 
 // ─── RESPALDO COMPLETO (exportar/importar todo lo cargado) ───
 function exportBackup() {
@@ -11958,6 +12049,120 @@ function getClientRanking(distKey, monthKey) {
     }).sort((a,b)=>b.qty-a.qty)
   }));
 }
+
+// ─── Consultas IA — herramientas (tool use) que el asistente puede invocar ────
+// Cada herramienta corre 100% local contra `db` (ya cargado para el usuario logueado) —
+// al Worker/Anthropic solo le llega el RESULTADO puntual de la consulta, nunca el
+// dataset completo. Ver cloudflare-worker/crm-ai-proxy/.
+const CRM_AI_TOOLS = [
+  {
+    name: 'buscar_compras_cliente',
+    description: 'Busca las compras de un cliente final (opcionalmente filtradas por modelo de producto) en todos los distribuidores, con fecha, distribuidor, cantidad y precio de cada venta. Usar esto para preguntas del tipo "¿fulano compró tal producto? ¿dónde y a qué precio?".',
+    input_schema: {
+      type: 'object',
+      properties: {
+        cliente: { type: 'string', description: 'Nombre (o parte del nombre) del cliente final a buscar' },
+        modelo: { type: 'string', description: 'Modelo o palabra clave del producto (opcional) — ej. "A520", "RTX 5070"' },
+        semanas: { type: 'number', description: 'Limitar a las últimas N semanas (opcional; si no se especifica trae todo el historial disponible)' }
+      },
+      required: ['cliente']
+    }
+  },
+  {
+    name: 'historial_precios_modelo',
+    description: 'Precio mínimo, máximo y promedio al que se vendió un modelo de producto, desglosado por distribuidor, más unidades vendidas y stock actual.',
+    input_schema: {
+      type: 'object',
+      properties: { modelo: { type: 'string', description: 'Modelo o palabra clave del producto' } },
+      required: ['modelo']
+    }
+  },
+  {
+    name: 'ranking_clientes',
+    description: 'Ranking de clientes finales por unidades y monto comprado, opcionalmente filtrado por distribuidor y/o mes (formato YYYY-MM).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        distribuidor: { type: 'string', description: 'Nombre del distribuidor (opcional) — ej. "AIR", "INVID", "ELIT"' },
+        mes: { type: 'string', description: 'Mes en formato YYYY-MM (opcional; si no se especifica trae todo el historial)' }
+      }
+    }
+  }
+];
+
+function _aiFindDistKey(nameHint) {
+  if(!nameHint) return 'all';
+  const q = nameHint.toLowerCase();
+  const found = Object.keys(DISTRIBUTORS).find(k => DISTRIBUTORS[k].toLowerCase().includes(q) || k.toLowerCase().includes(q));
+  return found || 'all';
+}
+
+function _aiToolBuscarComprasCliente({cliente, modelo, semanas}) {
+  const q = normClientKey(cliente || '');
+  if(!q) return { error: 'Falta el nombre del cliente.' };
+  const modelKey = modelo ? (extractProductModelKey(modelo) || modelo.toUpperCase().trim()) : null;
+  const cutoff = semanas ? Date.now() - semanas*7*24*60*60*1000 : null;
+  const compras = [];
+  db.weeklyReports.forEach(snap => {
+    if(snap.reportType !== 'sales') return;
+    if(cutoff && snap.periodEnd && new Date(snap.periodEnd).getTime() < cutoff) return;
+    snap.rows.forEach(r => {
+      if(!r.client) return;
+      const rowKey = normClientKey(r.client);
+      if(!rowKey.includes(q) && !q.includes(rowKey)) return;
+      if(modelKey) {
+        const rowModelKey = extractProductModelKey(r.description);
+        if(rowModelKey !== modelKey && (!r.code || r.code.toUpperCase().trim() !== modelKey)) return;
+      }
+      compras.push({
+        cliente: r.client,
+        distribuidor: DISTRIBUTORS[snap.distributor] || snap.distributor,
+        fecha: r.date || snap.periodEnd,
+        producto: r.description,
+        cantidad: r.qty,
+        precioUnitarioUSD: r.avgPrice != null ? Math.round(Math.abs(r.avgPrice)*100)/100 : null
+      });
+    });
+  });
+  compras.sort((a,b) => (b.fecha||'').localeCompare(a.fecha||''));
+  return { totalEncontrado: compras.length, compras: compras.slice(0, 40) };
+}
+
+function _aiToolHistorialPrecios({modelo}) {
+  if(!modelo) return { error: 'Falta el modelo a buscar.' };
+  const modelKey = extractProductModelKey(modelo) || modelo.toUpperCase().trim();
+  const rows = getModelGroupComparison(modelKey, 'all');
+  const withData = rows.filter(r => r.minPrice != null || r.stockQty != null || r.totalSold > 0);
+  if(!withData.length) return { error: 'No encontré ventas ni stock para ese modelo.' };
+  return { modeloDetectado: modelKey, distribuidores: withData.map(r => ({
+    distribuidor: DISTRIBUTORS[r.distributor] || r.distributor,
+    precioMinimoUSD: r.minPrice, precioMaximoUSD: r.maxPrice,
+    precioPromedioUSD: r.avgPrice != null ? Math.round(r.avgPrice*100)/100 : null,
+    unidadesVendidas: r.totalSold, stockActual: r.stockQty
+  })) };
+}
+
+function _aiToolRankingClientes({distribuidor, mes}) {
+  const distKey = _aiFindDistKey(distribuidor);
+  const ranking = getClientRanking(distKey, mes || 'all');
+  return {
+    distribuidor: distKey === 'all' ? 'Todos' : DISTRIBUTORS[distKey],
+    mes: mes || 'todo el historial',
+    top25: ranking.sort((a,b) => b.amount - a.amount).slice(0, 25).map(c => ({
+      cliente: c.name, unidades: c.qty, montoUSD: c.amount, distribuidores: c.distributors.map(d=>DISTRIBUTORS[d]||d)
+    }))
+  };
+}
+
+function _executeAiTool(name, input) {
+  try {
+    if(name === 'buscar_compras_cliente')   return _aiToolBuscarComprasCliente(input||{});
+    if(name === 'historial_precios_modelo') return _aiToolHistorialPrecios(input||{});
+    if(name === 'ranking_clientes')         return _aiToolRankingClientes(input||{});
+    return { error: 'Herramienta desconocida: ' + name };
+  } catch(e) { return { error: 'Error interno: ' + e.message }; }
+}
+
 let selectedClientKey = null;
 let _clientsShowAll = false;
 let _rotHistoryShowAll = false;
