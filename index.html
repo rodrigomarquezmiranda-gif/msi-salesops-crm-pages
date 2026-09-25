@@ -1501,7 +1501,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '25.09.26.5';
+const APP_VERSION = '25.09.26.6';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -2192,7 +2192,7 @@ function getApiKey() { return sessionStorage.getItem('salesops_apikey') || ''; }
 // ─── Consultas IA — chat con tool use contra el Worker seguro ────────────────
 // URL del Worker de cloudflare-worker/crm-ai-proxy/ — actualizar después de deployarlo
 // (ver README.md de esa carpeta). Mientras diga "REEMPLAZAR" el chat avisa que falta configurar.
-const CRM_AI_WORKER_URL = 'REEMPLAZAR_CON_URL_DEL_WORKER';
+const CRM_AI_WORKER_URL = 'https://msi-crm-ai-proxy.rodrigomarquezmiranda.workers.dev';
 const CRM_AI_SYSTEM_PROMPT = `Sos el asistente de datos del CRM de MSI Argentina (distribución B2B de hardware).
 Respondé preguntas sobre compras de clientes, precios de venta y ranking de clientes usando SIEMPRE las herramientas disponibles — nunca inventes cifras ni nombres que no vengan de una herramienta.
 Si una herramienta no encuentra resultados, decilo claramente en vez de suponer.
