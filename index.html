@@ -1022,7 +1022,7 @@
         <div class="ai-box" style="margin-bottom:1.25rem">
           <div class="ai-box-header"><i class="ti ti-message-chatbot"></i> Consultas sobre tus datos</div>
           <div style="font-size:13px;color:var(--text2);margin-bottom:10px">Preguntá en lenguaje natural sobre compras, precios o ranking de clientes — ej. "¿Segal compró A520 en la última semana? ¿dónde y a qué precio?". Los datos nunca salen de tu sesión salvo el resultado puntual de cada consulta.</div>
-          <div id="ai-chat-log" style="display:flex;flex-direction:column;gap:10px;max-height:420px;overflow-y:auto;margin-bottom:10px"></div>
+          <div id="ai-chat-log" style="display:flex;flex-direction:column;gap:12px;min-height:220px;max-height:65vh;overflow-y:auto;margin-bottom:10px;padding:4px 2px"></div>
           <div id="ai-chat-loading" style="display:none;margin-bottom:10px"><div class="loading-row"><div class="spinner"></div> Pensando...</div></div>
           <div style="display:flex;gap:8px">
             <input type="text" id="ai-chat-input" placeholder="Preguntá algo sobre tus datos..."
@@ -1501,7 +1501,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '25.09.26.7';
+const APP_VERSION = '25.09.26.8';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -2200,15 +2200,63 @@ Si una herramienta no encuentra resultados después de eso, decilo claramente en
 Formato de respuesta:
 1. Primero respondé la pregunta puntual con los datos exactos (fechas, distribuidor, cantidades, precios en USD).
 2. Si los datos devueltos por las herramientas muestran algo que valga la pena señalar (ej. un precio bastante más alto o bajo que en otros distribuidores, una caída o salto notorio, algo que se repite en varios clientes), agregá al final un párrafo corto que empiece con "💡 " con esa observación — pero SOLO si realmente hay algo notable en los datos que devolviste, nunca por rellenar. Si no hay nada llamativo, no agregues ese párrafo.
+Presentación: el chat renderiza markdown (negrita, listas, tablas), así que usalo para que se lea bien — cuando haya 2 o más filas de datos (varias compras, varios distribuidores, un ranking) armá una tabla en markdown con esas columnas en vez de un párrafo corrido; para 1 solo dato alcanza con una frase directa. Usá negrita para resaltar el dato clave de cada respuesta (nombre, precio, fecha). Un emoji ocasional al arranque de una idea está bien si suma claridad (📅 fecha, 💰 precio, 📈/📉 tendencia, ⚠️ alerta) pero no lo satures — no pongas emoji en cada línea.
 Respondé siempre en español, tono directo y profesional, sin rodeos.`;
 
 let _aiChatHistory = []; // [{role:'user'|'assistant', content: string | array}]
+
+// Mini-renderer de markdown para las respuestas del chat — soporta lo que la IA
+// suele usar: **negrita**, listas con "- "/"1. ", tablas con pipes, y párrafos.
+// Todo el texto se escapa ANTES de aplicar el formato (nunca se inyecta HTML crudo).
+function _mdToHtml(raw) {
+  const lines = String(raw||'').split('\n');
+  let html = '';
+  let i = 0;
+  const inline = s => esc(s)
+    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+    .replace(/`([^`]+)`/g, '<code style="background:var(--bg3);padding:1px 5px;border-radius:4px;font-size:0.85em">$1</code>');
+  while(i < lines.length) {
+    const line = lines[i];
+    // Tabla: fila de pipes seguida de una fila separadora (---|---)
+    if(/^\s*\|.*\|\s*$/.test(line) && lines[i+1] && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i+1])) {
+      const headerCells = line.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim());
+      let body = '';
+      let j = i+2;
+      while(j < lines.length && /^\s*\|.*\|\s*$/.test(lines[j])) {
+        const cells = lines[j].trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim());
+        body += '<tr>' + cells.map(c=>`<td style="padding:5px 9px;border-top:1px solid var(--border2)">${inline(c)}</td>`).join('') + '</tr>';
+        j++;
+      }
+      html += `<table style="border-collapse:collapse;width:100%;margin:6px 0;font-size:0.85em">
+        <thead><tr>${headerCells.map(c=>`<th style="text-align:left;padding:5px 9px;color:var(--text2);border-bottom:1px solid var(--border2)">${inline(c)}</th>`).join('')}</tr></thead>
+        <tbody>${body}</tbody></table>`;
+      i = j;
+      continue;
+    }
+    // Lista con viñetas o numerada
+    if(/^\s*[-•]\s+/.test(line) || /^\s*\d+\.\s+/.test(line)) {
+      const ordered = /^\s*\d+\.\s+/.test(line);
+      const tag = ordered ? 'ol' : 'ul';
+      let items = '';
+      while(i < lines.length && (/^\s*[-•]\s+/.test(lines[i]) || /^\s*\d+\.\s+/.test(lines[i]))) {
+        items += `<li>${inline(lines[i].replace(/^\s*(?:[-•]|\d+\.)\s+/, ''))}</li>`;
+        i++;
+      }
+      html += `<${tag} style="margin:4px 0;padding-left:20px">${items}</${tag}>`;
+      continue;
+    }
+    if(line.trim() === '') { html += '<div style="height:6px"></div>'; i++; continue; }
+    html += `<div>${inline(line)}</div>`;
+    i++;
+  }
+  return html;
+}
 
 function _renderAiChatLog() {
   const log = document.getElementById('ai-chat-log');
   if(!log) return;
   log.innerHTML = _aiChatHistory.filter(m => typeof m.content === 'string').map(m => `
-    <div style="align-self:${m.role==='user'?'flex-end':'flex-start'};max-width:85%;background:${m.role==='user'?'var(--brand)':'var(--bg2)'};color:${m.role==='user'?'#fff':'var(--text)'};padding:9px 13px;border-radius:12px;font-size:0.88rem;line-height:1.5;white-space:pre-wrap">${esc(m.content)}</div>
+    <div style="align-self:${m.role==='user'?'flex-end':'flex-start'};max-width:90%;background:${m.role==='user'?'var(--brand)':'var(--bg2)'};color:${m.role==='user'?'#fff':'var(--text)'};padding:10px 14px;border-radius:12px;font-size:0.92rem;line-height:1.55">${m.role==='user'?esc(m.content):_mdToHtml(m.content)}</div>
   `).join('');
   log.scrollTop = log.scrollHeight;
 }
