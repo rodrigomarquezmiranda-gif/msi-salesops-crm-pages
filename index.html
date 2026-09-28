@@ -1504,7 +1504,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '28.09.26.3';
+const APP_VERSION = '28.09.26.4';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -12148,12 +12148,13 @@ const CRM_AI_TOOLS = [
   },
   {
     name: 'resellers_tier',
-    description: 'Resellers (revendedores) configurados en un tier (T1, T2 o T3) del CRM, con unidades vendidas por línea de producto (Motherboard, VGA, Monitor, PSU, Chassis, LC, Arms, GGD, PRO DT/Cubi, etc.) en un año dado, y los objetivos trimestrales cargados si existen. Usar esto para preguntas sobre "resellers T1/T2/T3", "revendedores", o por qué un tier compra menos de una línea.',
+    description: 'Resellers (revendedores) configurados en un tier (T1, T2 o T3) del CRM, con unidades vendidas por línea de producto (Motherboard, VGA, Monitor, PSU, Chassis, LC, Arms, GGD, PRO DT/Cubi, etc.), desglosado por mes, y los objetivos trimestrales cargados si existen. Usar esto para preguntas sobre "resellers T1/T2/T3", "revendedores", o por qué un tier compra menos de una línea. Si preguntan por un mes puntual (ej. "el último mes"), pasá el parámetro "mes" en formato YYYY-MM en vez de traer todo el año.',
     input_schema: {
       type: 'object',
       properties: {
         tier: { type: 'string', description: 'Tier a consultar: "T1", "T2" o "T3"' },
-        anio: { type: 'string', description: 'Año en formato YYYY (opcional, default año actual)' }
+        anio: { type: 'string', description: 'Año en formato YYYY (opcional, default año actual) — se usa como base para el desglose mensual' },
+        mes: { type: 'string', description: 'Mes puntual en formato YYYY-MM (opcional) — si se especifica, la respuesta trae solo las unidades de ESE mes por línea en vez del desglose mensual completo del año' }
       },
       required: ['tier']
     }
@@ -12224,22 +12225,49 @@ function _aiToolRankingClientes({distribuidor, mes}) {
   };
 }
 
-function _aiToolResellersTier({tier, anio}) {
+function _aiToolResellersTier({tier, anio, mes}) {
   const tierKey = String(tier||'').toLowerCase().replace(/[^t0-9]/g,'');
   if(!['t1','t2','t3'].includes(tierKey)) return { error: 'Tier inválido — usá T1, T2 o T3.' };
   const resellers = (db.resellers && db.resellers[tierKey]) || [];
   if(!resellers.length) return { error: `No hay resellers configurados en ${tierKey.toUpperCase()}.` };
-  const year = anio || String(new Date().getFullYear());
+  // Si viene un mes puntual, el año lo sacamos de ahí (sino getResellerMonthlyData filtra por otro año y no matchea nada)
+  const year = mes ? mes.slice(0,4) : (anio || String(new Date().getFullYear()));
+
+  if(mes) {
+    // Un mes puntual: unidades de ESE mes por línea, nada más (evita mandar el año entero)
+    return {
+      tier: tierKey.toUpperCase(),
+      mes,
+      resellers: resellers.map(r => {
+        const data = getResellerMonthlyData(r, year);
+        const porLinea = {};
+        let total = 0;
+        RESELLER_LINE_KEYS.forEach(k => {
+          const v = (data[k] && data[k][mes]) || 0;
+          if(v > 0) porLinea[(RESELLER_LINES.find(l=>l.key===k)||{}).label || k] = v;
+          total += v;
+        });
+        return { nombre: r.name, unidadesTotalMes: total, porLinea };
+      }).sort((a,b) => b.unidadesTotalMes - a.unidadesTotalMes)
+    };
+  }
+
   return {
     tier: tierKey.toUpperCase(),
     anio: year,
     resellers: resellers.map(r => {
       const data = getResellerMonthlyData(r, year);
-      const porLinea = {};
+      const porLinea = {};       // total anual por línea (para vista rápida)
+      const porLineaPorMes = {}; // desglose mensual por línea, solo meses con datos
       let total = 0;
       RESELLER_LINE_KEYS.forEach(k => {
-        const sum = Object.values(data[k]||{}).reduce((s,v)=>s+v,0);
-        if(sum > 0) porLinea[(RESELLER_LINES.find(l=>l.key===k)||{}).label || k] = sum;
+        const meses = data[k] || {};
+        const sum = Object.values(meses).reduce((s,v)=>s+v,0);
+        const label = (RESELLER_LINES.find(l=>l.key===k)||{}).label || k;
+        if(sum > 0) {
+          porLinea[label] = sum;
+          porLineaPorMes[label] = Object.fromEntries(Object.entries(meses).filter(([,v])=>v>0));
+        }
         total += sum;
       });
       const objetivosTrimestrales = {};
@@ -12248,7 +12276,7 @@ function _aiToolResellersTier({tier, anio}) {
         const val = db.resellerTargets ? db.resellerTargets[tk] : undefined;
         if(val != null && val !== '') objetivosTrimestrales[q] = val;
       });
-      return { nombre: r.name, unidadesTotalAnio: total, porLinea, objetivosTrimestrales };
+      return { nombre: r.name, unidadesTotalAnio: total, porLinea, porLineaPorMes, objetivosTrimestrales };
     }).sort((a,b) => b.unidadesTotalAnio - a.unidadesTotalAnio)
   };
 }
