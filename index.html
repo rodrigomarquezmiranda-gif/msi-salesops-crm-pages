@@ -1501,7 +1501,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '25.09.26.8';
+const APP_VERSION = '28.09.26.1';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -2217,12 +2217,13 @@ function _mdToHtml(raw) {
     .replace(/`([^`]+)`/g, '<code style="background:var(--bg3);padding:1px 5px;border-radius:4px;font-size:0.85em">$1</code>');
   while(i < lines.length) {
     const line = lines[i];
-    // Tabla: fila de pipes seguida de una fila separadora (---|---)
-    if(/^\s*\|.*\|\s*$/.test(line) && lines[i+1] && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i+1])) {
+    // Tabla: fila de pipes seguida de una fila separadora (---|---) — el pipe de
+    // cierre es opcional porque una respuesta puede cortarse justo en la última fila.
+    if(/^\s*\|.*/.test(line) && lines[i+1] && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i+1])) {
       const headerCells = line.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim());
       let body = '';
       let j = i+2;
-      while(j < lines.length && /^\s*\|.*\|\s*$/.test(lines[j])) {
+      while(j < lines.length && /^\s*\|.*/.test(lines[j])) {
         const cells = lines[j].trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim());
         body += '<tr>' + cells.map(c=>`<td style="padding:5px 9px;border-top:1px solid var(--border2)">${inline(c)}</td>`).join('') + '</tr>';
         j++;
@@ -2267,7 +2268,7 @@ async function _callAiWorker(messages) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
-      max_tokens: 1200,
+      max_tokens: 4096,
       system: CRM_AI_SYSTEM_PROMPT,
       tools: CRM_AI_TOOLS,
       messages
