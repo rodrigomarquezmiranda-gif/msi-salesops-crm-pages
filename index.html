@@ -594,7 +594,7 @@
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:1rem">
           <div style="position:relative;flex:1;max-width:340px">
             <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:14px;pointer-events:none"></i>
-            <input id="pi-search-input" type="text" placeholder="Buscar Orden por nombre, cliente o monto…"
+            <input id="pi-search-input" type="text" placeholder="Buscar por nombre, cliente, monto o modelo (ej. A520, RTX 5070)…"
               style="width:100%;padding:8px 10px 8px 32px;border:1px solid var(--border2);border-radius:8px;background:var(--bg2);color:var(--text);font-size:13px;outline:none;box-sizing:border-box"
               oninput="_piSearch=this.value.toLowerCase().trim();if(_piSearch)_piColShowAll={};renderPipeline('pi')" />
           </div>
@@ -1504,7 +1504,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '28.09.26.4';
+const APP_VERSION = '28.09.26.5';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -1526,6 +1526,7 @@ let currentFilter = { pi:'all' };
 let _piSearch = '';
 let _piShowAll = false; // legacy compat (unused)
 let _piColShowAll = {}; // per-column "Ver todas" state
+let _piSearchItemMatch = {}; // {piId: nombre del modelo que matcheó la búsqueda dentro de sus ítems}
 
 const TRANSIT_DAYS = { 'miami-aereo': 10, 'miami-maritimo': 30, 'china-maritimo': 60 };
 
@@ -2510,12 +2511,23 @@ function renderPipeline(pipe) {
       piSource = db.pi.filter(x => _sfMatchDist(x.client) === _currentDistributor || _sfMatchDist(x.disti) === _currentDistributor);
       piActiveSet = new Set(piSource.map(x => x.id));
     }
+    _piSearchItemMatch = {};
     if(_piSearch) {
-      const searchSet = new Set(piSource.filter(x =>
-        (x.name||'').toLowerCase().includes(_piSearch) ||
-        (x.client||'').toLowerCase().includes(_piSearch) ||
-        String(x.amount||'').includes(_piSearch)
-      ).map(x => x.id));
+      // Además de nombre/cliente/monto, buscar dentro de los ítems (modelo/código) que trae
+      // cada PI o Invoice parseado del PDF — así con escribir "A520" o "RTX 5070" aparecen
+      // todas las órdenes que tengan ese modelo en camino, entregadas o no. Guardamos qué ítem
+      // matcheó para poder mostrarlo como pista en la tarjeta.
+      const findMatchingItem = x => [...(x.lineItems||[]), ...(x.invoiceItems||[])].find(li =>
+        (li.itemCode||'').toLowerCase().includes(_piSearch) || (li.marketingName||'').toLowerCase().includes(_piSearch)
+      );
+      const searchSet = new Set(piSource.filter(x => {
+        if((x.name||'').toLowerCase().includes(_piSearch) ||
+           (x.client||'').toLowerCase().includes(_piSearch) ||
+           String(x.amount||'').includes(_piSearch)) return true;
+        const m = findMatchingItem(x);
+        if(m) { _piSearchItemMatch[x.id] = m.marketingName || m.itemCode; return true; }
+        return false;
+      }).map(x => x.id));
       piActiveSet = searchSet;
       const count = piActiveSet.size;
       document.getElementById('pi-search-notice').innerHTML =
@@ -2548,9 +2560,11 @@ function renderPipeline(pipe) {
           transitBadge = `<span class="pill pill-gray" style="font-size:9px">TRÁNSITO VENCIDO</span>`;
         }
       }
+      const itemMatchLabel = (pipe === 'pi' && _piSearchItemMatch[item.id]) ? _piSearchItemMatch[item.id] : null;
       return `<div class="card" onclick="openEdit(${item.id},'${pipe}')">
         <div class="card-title">${esc(item.name)}</div>
         ${item.client ? `<div class="card-client">${esc(item.client)}</div>` : ''}
+        ${itemMatchLabel ? `<div style="font-size:10.5px;color:var(--brand-text);margin-top:2px"><i class="ti ti-package" style="font-size:11px"></i> ${esc(itemMatchLabel)}</div>` : ''}
         <div class="card-footer">
           <span class="pill ${PILL_MAP[item.status]||'pill-gray'}">${item.status}</span>
           ${item.dueDate ? daysChip(d) : ''}
