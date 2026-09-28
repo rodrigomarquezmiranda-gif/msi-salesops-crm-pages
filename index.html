@@ -519,7 +519,7 @@
         <i class="ti ti-trophy" style="color:#C0392B;font-size:16px"></i> Powered by MSI
       </button>
       <button class="nav-item admin-only" id="nav-ia" onclick="gotoTab('ia')">
-        <i class="ti ti-robot" style="color:#7CBAA0"></i> Analizar con IA
+        <img src="./luckia-avatar.jpg" alt="" style="width:16px;height:16px;border-radius:50%;object-fit:cover;vertical-align:-3px;margin-right:2px" /> LuckIA
       </button>
       <button class="nav-item" onclick="window.open('./training/index.html','_blank')" title="Probá cuánto sabés de productos MSI">
         <i class="ti ti-school" style="color:#A3BE8C"></i> MSI Quiz
@@ -1020,10 +1020,13 @@
       <!-- IA -->
       <div id="tab-ia" class="tab-pane">
         <div class="ai-box" style="margin-bottom:1.25rem">
-          <div class="ai-box-header"><i class="ti ti-message-chatbot"></i> Consultas sobre tus datos</div>
-          <div style="font-size:13px;color:var(--text2);margin-bottom:10px">Preguntá en lenguaje natural sobre compras, precios o ranking de clientes — ej. "¿Segal compró A520 en la última semana? ¿dónde y a qué precio?". Los datos nunca salen de tu sesión salvo el resultado puntual de cada consulta.</div>
+          <div class="ai-box-header" style="display:flex;align-items:center;gap:8px">
+            <img src="./luckia-avatar.jpg" alt="LuckIA" style="width:26px;height:26px;border-radius:50%;object-fit:cover;border:1.5px solid var(--brand)" />
+            LuckIA — Consultas sobre tus datos
+          </div>
+          <div style="font-size:13px;color:var(--text2);margin-bottom:10px">Preguntá en lenguaje natural sobre compras, precios, ranking de clientes o resellers — ej. "¿Segal compró A520 en la última semana? ¿dónde y a qué precio?". Los datos nunca salen de tu sesión salvo el resultado puntual de cada consulta.</div>
           <div id="ai-chat-log" style="display:flex;flex-direction:column;gap:12px;min-height:220px;max-height:65vh;overflow-y:auto;margin-bottom:10px;padding:4px 2px"></div>
-          <div id="ai-chat-loading" style="display:none;margin-bottom:10px"><div class="loading-row"><div class="spinner"></div> Pensando...</div></div>
+          <div id="ai-chat-loading" style="display:none;margin-bottom:10px"><div class="loading-row"><img src="./luckia-avatar.jpg" alt="" style="width:18px;height:18px;border-radius:50%;object-fit:cover;vertical-align:-4px;margin-right:4px" /> LuckIA está pensando...</div></div>
           <div style="display:flex;gap:8px">
             <input type="text" id="ai-chat-input" placeholder="Preguntá algo sobre tus datos..."
               style="flex:1;padding:9px 12px;border-radius:var(--radius);border:0.5px solid var(--border2);background:var(--bg2);color:var(--text);font-size:0.9rem"
@@ -1501,7 +1504,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '28.09.26.2';
+const APP_VERSION = '28.09.26.3';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -2193,7 +2196,7 @@ function getApiKey() { return sessionStorage.getItem('salesops_apikey') || ''; }
 // URL del Worker de cloudflare-worker/crm-ai-proxy/ — actualizar después de deployarlo
 // (ver README.md de esa carpeta). Mientras diga "REEMPLAZAR" el chat avisa que falta configurar.
 const CRM_AI_WORKER_URL = 'https://msi-crm-ai-proxy.rodrigomarquezmiranda.workers.dev';
-const CRM_AI_SYSTEM_PROMPT = `Sos el asistente de datos del CRM de MSI Argentina (distribución B2B de hardware).
+const CRM_AI_SYSTEM_PROMPT = `Te llamás LuckIA, el asistente de datos del CRM de MSI Argentina (distribución B2B de hardware). Si te preguntan tu nombre o quién sos, respondé con eso brevemente — pero no te presentes de nuevo en cada respuesta, solo cuando te pregunten.
 Respondé preguntas sobre compras de clientes, precios de venta, ranking de clientes y resellers T1/T2/T3 (revendedores agrupados por tier, con ventas por línea de producto y objetivos trimestrales) usando SIEMPRE las herramientas disponibles — nunca inventes cifras ni nombres que no vengan de una herramienta.
 Si el usuario pide un rango de fechas específico (ej. "la última semana") y la herramienta no encuentra nada en ESE rango puntual, antes de responder "no hay compras" volvé a llamar la misma herramienta SIN esa restricción de fecha (todo el historial) para ver si hay compras más viejas — y si las hay, contestá con eso y aclará que no fueron en el rango pedido sino antes (con la fecha real). Recién si tampoco aparece nada en todo el historial, decí que no encontraste compras de ese cliente/modelo.
 Si una herramienta no encuentra resultados después de eso, decilo claramente en vez de suponer.
@@ -2256,9 +2259,14 @@ function _mdToHtml(raw) {
 function _renderAiChatLog() {
   const log = document.getElementById('ai-chat-log');
   if(!log) return;
-  log.innerHTML = _aiChatHistory.filter(m => typeof m.content === 'string').map(m => `
-    <div style="align-self:${m.role==='user'?'flex-end':'flex-start'};max-width:90%;background:${m.role==='user'?'var(--brand)':'var(--bg2)'};color:${m.role==='user'?'#fff':'var(--text)'};padding:10px 14px;border-radius:12px;font-size:0.92rem;line-height:1.55">${m.role==='user'?esc(m.content):_mdToHtml(m.content)}</div>
-  `).join('');
+  log.innerHTML = _aiChatHistory.filter(m => typeof m.content === 'string').map(m => {
+    const bubble = `<div style="max-width:90%;background:${m.role==='user'?'var(--brand)':'var(--bg2)'};color:${m.role==='user'?'#fff':'var(--text)'};padding:10px 14px;border-radius:12px;font-size:0.92rem;line-height:1.55">${m.role==='user'?esc(m.content):_mdToHtml(m.content)}</div>`;
+    if(m.role === 'user') return `<div style="align-self:flex-end">${bubble}</div>`;
+    return `<div style="align-self:flex-start;display:flex;gap:8px;align-items:flex-start;max-width:90%">
+      <img src="./luckia-avatar.jpg" alt="" style="width:24px;height:24px;border-radius:50%;object-fit:cover;flex-shrink:0;margin-top:2px" />
+      ${bubble}
+    </div>`;
+  }).join('');
   log.scrollTop = log.scrollHeight;
 }
 
