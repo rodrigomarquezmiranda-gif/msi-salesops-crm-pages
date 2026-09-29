@@ -1504,7 +1504,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '29.09.26.2';
+const APP_VERSION = '29.09.26.3';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -4246,6 +4246,7 @@ async function handlePIFile(file) {
       _pendingPISignedFile = { name:file.name, dataUrl };
       document.getElementById('pf-status').value = 'Firmado';
       refreshPIFileUI();
+      _alert(`La PI N° ${esc(parsed.piNumber)} ya estaba cargada (cliente: ${esc(existing.client||'—')}, estado: ${esc(existing.status||'—')}). Se abrió en modo edición para no duplicarla — revisá los datos antes de guardar.`, {type:'warning', title:'PI ya existente', duration:9000});
     } else {
       const looksSigned = /signed|firmad/i.test(file.name);
       openPINew(looksSigned ? 'Firmado' : 'Enviado al cliente', parsed);
