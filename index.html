@@ -1504,7 +1504,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '29.09.26.3';
+const APP_VERSION = '29.09.26.4';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -2261,18 +2261,130 @@ function _mdToHtml(raw) {
   return html;
 }
 
+// Extrae todas las tablas markdown (pipes) de una respuesta — misma lógica de detección
+// que _mdToHtml, pero devuelve los datos crudos en vez de HTML, para poder exportarlos.
+function _extractMdTables(raw) {
+  const lines = String(raw||'').split('\n');
+  const tables = [];
+  let i = 0;
+  while(i < lines.length) {
+    const line = lines[i];
+    if(/^\s*\|.*/.test(line) && lines[i+1] && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i+1])) {
+      const headers = line.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim());
+      const rows = [];
+      let j = i+2;
+      while(j < lines.length && /^\s*\|.*/.test(lines[j])) {
+        rows.push(lines[j].trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim()));
+        j++;
+      }
+      tables.push({ headers, rows });
+      i = j;
+      continue;
+    }
+    i++;
+  }
+  return tables;
+}
+
 function _renderAiChatLog() {
   const log = document.getElementById('ai-chat-log');
   if(!log) return;
-  log.innerHTML = _aiChatHistory.filter(m => typeof m.content === 'string').map(m => {
+  log.innerHTML = _aiChatHistory.map((m, idx) => {
+    if(typeof m.content !== 'string') return '';
     const bubble = `<div style="max-width:90%;background:${m.role==='user'?'var(--brand)':'var(--bg2)'};color:${m.role==='user'?'#fff':'var(--text)'};padding:10px 14px;border-radius:12px;font-size:0.92rem;line-height:1.55">${m.role==='user'?esc(m.content):_mdToHtml(m.content)}</div>`;
     if(m.role === 'user') return `<div style="align-self:flex-end">${bubble}</div>`;
-    return `<div style="align-self:flex-start;display:flex;gap:8px;align-items:flex-start;max-width:90%">
-      <img src="./luckia-avatar.jpg" alt="" style="width:24px;height:24px;border-radius:50%;object-fit:cover;flex-shrink:0;margin-top:2px" />
-      ${bubble}
+    const hasTable = _extractMdTables(m.content).length > 0;
+    const exportBtn = hasTable
+      ? `<button onclick="_exportAiChatTable(${idx})" title="Exportar esta tabla a Excel" style="margin-left:32px;margin-top:2px;background:none;border:1px solid var(--border2);color:var(--text2);font-size:10.5px;padding:2px 8px;border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;width:fit-content"><i class="ti ti-file-spreadsheet" style="font-size:12px"></i> Exportar</button>`
+      : '';
+    return `<div style="align-self:flex-start;display:flex;flex-direction:column;gap:2px;max-width:90%">
+      <div style="display:flex;gap:8px;align-items:flex-start">
+        <img src="./luckia-avatar.jpg" alt="" style="width:24px;height:24px;border-radius:50%;object-fit:cover;flex-shrink:0;margin-top:2px" />
+        ${bubble}
+      </div>
+      ${exportBtn}
     </div>`;
   }).join('');
   log.scrollTop = log.scrollHeight;
+}
+
+// Exporta la(s) tabla(s) markdown de una respuesta puntual de LuckIA a Excel (branding navy/orange).
+async function _exportAiChatTable(idx) {
+  const msg = _aiChatHistory[idx];
+  if(!msg || typeof msg.content !== 'string') return;
+  const tables = _extractMdTables(msg.content);
+  if(!tables.length) { toast('Esta respuesta no tiene una tabla para exportar.'); return; }
+
+  const NAVY='FF1F2A44', ORANGE='FFFF6600', WHITE='FFFFFFFF', GRAY='FFF5F5F5';
+  const BORDER = { top:{style:'thin',color:{argb:'FFCCCCCC'}}, left:{style:'thin',color:{argb:'FFCCCCCC'}}, bottom:{style:'thin',color:{argb:'FFCCCCCC'}}, right:{style:'thin',color:{argb:'FFCCCCCC'}} };
+  const sf = (argb) => ({ type:'pattern', pattern:'solid', fgColor:{argb} });
+  const dateStr = new Date().toLocaleDateString('es-AR');
+  const question = (_aiChatHistory[idx-1] && _aiChatHistory[idx-1].role === 'user') ? _aiChatHistory[idx-1].content : '';
+  const maxCols = Math.max(...tables.map(t => t.headers.length));
+
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('LuckIA');
+  ws.columns = Array.from({length:maxCols}, () => ({ width:20 }));
+
+  ws.addRow([]); ws.mergeCells(1,1,1,maxCols);
+  const t1 = ws.getCell('A1');
+  t1.value = 'LuckIA — Datos exportados';
+  t1.fill = sf(NAVY); t1.font = { bold:true, size:15, color:{argb:WHITE}, name:'Calibri' };
+  t1.alignment = { horizontal:'left', vertical:'middle' };
+  ws.getRow(1).height = 28;
+
+  ws.addRow([]); ws.mergeCells(2,1,2,maxCols);
+  const t2 = ws.getCell('A2');
+  t2.value = (question ? `Consulta: ${question}   ·   ` : '') + `Generado: ${dateStr}`;
+  t2.fill = sf('FF2C3E6B'); t2.font = { italic:true, size:10, color:{argb:WHITE}, name:'Calibri' };
+  t2.alignment = { horizontal:'left', vertical:'middle', wrapText:true };
+  ws.getRow(2).height = question ? 28 : 16;
+
+  ws.addRow([]); ws.mergeCells(3,1,3,maxCols); ws.getCell('A3').fill = sf(ORANGE); ws.getRow(3).height = 4;
+  ws.addRow([]); ws.getRow(4).height = 6;
+
+  tables.forEach((t, ti) => {
+    if(tables.length > 1) {
+      ws.addRow([]);
+      const nr = ws.lastRow.number;
+      ws.mergeCells(nr,1,nr,maxCols);
+      const nc = ws.getCell(nr,1);
+      nc.value = `Tabla ${ti+1}`;
+      nc.fill = sf('FF2C3E6B'); nc.font = { bold:true, size:11, color:{argb:WHITE}, name:'Calibri' };
+      nc.alignment = { horizontal:'left', vertical:'middle' };
+      ws.getRow(nr).height = 19;
+    }
+    ws.addRow(t.headers);
+    const hr = ws.lastRow.number;
+    t.headers.forEach((_,i) => {
+      const c = ws.getCell(hr, i+1);
+      c.fill = sf(ORANGE); c.font = { bold:true, size:10, color:{argb:WHITE}, name:'Calibri' };
+      c.alignment = { horizontal:'center', vertical:'middle', wrapText:true }; c.border = BORDER;
+    });
+    ws.getRow(hr).height = 22;
+
+    t.rows.forEach((row, ri) => {
+      ws.addRow(row);
+      const rn = ws.lastRow.number;
+      const fill = sf(ri % 2 === 0 ? GRAY : WHITE);
+      row.forEach((v,i) => {
+        const c = ws.getCell(rn, i+1);
+        c.fill = fill; c.border = BORDER; c.font = { size:9.5, name:'Calibri' };
+        c.alignment = { horizontal:'left', vertical:'middle' };
+      });
+    });
+    ws.addRow([]);
+  });
+
+  const fname = `luckia_${new Date().toISOString().slice(0,10)}_${Date.now()}.xlsx`;
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = fname;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('Excel exportado.');
 }
 
 async function _callAiWorker(messages) {
