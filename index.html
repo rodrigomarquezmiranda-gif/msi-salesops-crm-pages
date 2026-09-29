@@ -1504,7 +1504,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '29.09.26.4';
+const APP_VERSION = '29.09.26.5';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -7922,7 +7922,7 @@ function renderPBMTab() {
       const a = m === _pbmActiveMon;
       return `<button onclick="_pbmActiveMon='${m}';renderPBMTab()" style="background:${a?'rgba(192,57,43,0.18)':'none'};border:1px solid ${a?'#C0392B':'var(--border)'};border-radius:14px;padding:3px 12px;font-size:12px;color:${a?'#C0392B':'var(--text)'};cursor:pointer;font-weight:${a?700:400}">${m||'Sin mes'}</button>`;
     }).join('')}` : ''}
-    <button onclick="if(confirm('¿Eliminar el reporte de ${_pbmActiveMon} para este reseller?'))_pbmRemoveReport('${_pbmActiveCuit}','${_pbmActiveMon}')" style="background:none;border:1px solid var(--border);border-radius:14px;cursor:pointer;font-size:11px;color:#888;padding:3px 10px;display:flex;align-items:center;gap:4px" title="Eliminar reporte activo">
+    <button onclick="_pbmRemoveReport('${_pbmActiveCuit}','${_pbmActiveMon}')" style="background:none;border:1px solid var(--border);border-radius:14px;cursor:pointer;font-size:11px;color:#888;padding:3px 10px;display:flex;align-items:center;gap:4px" title="Eliminar reporte activo">
       <i class="ti ti-trash" style="font-size:12px"></i>${months.length === 1 ? ' Eliminar reporte' : ''}
     </button>
   </div>`;
@@ -8109,7 +8109,7 @@ function _pbmShowManage() {
       <td style="padding:8px 10px;font-weight:600">${r.name}</td>
       <td style="padding:8px 10px;color:#888;font-family:monospace;font-size:12px">${_pbmFmtCuit(r.cuit)}</td>
       <td style="padding:8px 10px;text-align:right">
-        <button onclick="_pbmResellers.splice(${i},1);_pbmSave();_pbmShowManage()" style="background:none;border:none;cursor:pointer;color:#BF616A;font-size:12px">
+        <button onclick="_pbmRemoveReseller('${r.cuit}', true).then(ok=>{ if(ok) _pbmShowManage(); })" style="background:none;border:none;cursor:pointer;color:#BF616A;font-size:12px">
           <i class="ti ti-trash"></i>
         </button>
       </td>
@@ -8217,15 +8217,25 @@ function _pbmAddResellerFromModal() {
   _pbmShowManage(); // re-render modal
 }
 
-function _pbmRemoveReseller(cuit) {
+async function _pbmRemoveReseller(cuit, skipRerender) {
+  const r = _pbmResellerByCuit(cuit);
+  const repCount = _pbmReports.filter(rp => _pbmNormCuit(rp.cuit) === _pbmNormCuit(cuit)).length;
+  const label = r ? `${r.name} (${_pbmFmtCuit(r.cuit)})` : cuit;
+  const ok = await _confirm(
+    `¿Eliminar a ${label} de PBM? Se van a borrar también ${repCount ? `sus ${repCount} reporte${repCount!==1?'s':''} cargado${repCount!==1?'s':''}` : 'sus datos'}. No se puede deshacer.`,
+    {title:'Eliminar cliente PBM', danger:true, okLabel:'Eliminar'}
+  );
+  if(!ok) return false;
   _pbmResellers = _pbmResellers.filter(r => _pbmNormCuit(r.cuit) !== _pbmNormCuit(cuit));
   _pbmReports   = _pbmReports.filter(r => _pbmNormCuit(r.cuit) !== _pbmNormCuit(cuit));
   if (_pbmNormCuit(_pbmActiveCuit) === _pbmNormCuit(cuit)) { _pbmActiveCuit = null; _pbmActiveMon = null; }
   _pbmSave();
-  renderPBMTab();
+  if(!skipRerender) renderPBMTab();
+  return true;
 }
 
-function _pbmRemoveReport(cuit, month) {
+async function _pbmRemoveReport(cuit, month) {
+  if(!await _confirm(`¿Eliminar el reporte de ${month} para este reseller? No se puede deshacer.`, {title:'Eliminar reporte', danger:true, okLabel:'Eliminar'})) return;
   _pbmReports = _pbmReports.filter(r => !((_pbmNormCuit(r.cuit)===_pbmNormCuit(cuit)) && r.month===month));
   _pbmActiveMon = (_pbmReportsFor(cuit)[0]||{}).month || null;
   _pbmSave();
@@ -9861,9 +9871,10 @@ function toggleMktQ(q) {
   renderMktTab();
 }
 
-function deleteMktQ(q) {
+async function deleteMktQ(q) {
   const data = (db.mkt || [])[0];
   if(!data) return;
+  if(!await _confirm(`¿Eliminar el trimestre ${q} del Presupuesto de Marketing? No se puede deshacer.`, {title:'Eliminar trimestre', danger:true, okLabel:'Eliminar'})) return;
   data.quarters = data.quarters.filter(qq => qq.q !== q);
   mktSelectedQs.delete(q);
   if(!mktSelectedQs.size && data.quarters.length) mktSelectedQs.add(data.quarters[0].q);
@@ -9909,8 +9920,8 @@ function setMktViewMode(mode) {
   renderMktTab();
 }
 
-function deleteMktData() {
-  if(!confirm('¿Eliminar el archivo de Marketing Budget cargado?')) return;
+async function deleteMktData() {
+  if(!await _confirm('¿Eliminar el archivo de Marketing Budget cargado? No se puede deshacer.', {title:'Eliminar archivo', danger:true, okLabel:'Eliminar'})) return;
   db.mkt = [];
   saveDB();
   renderMktTab();
@@ -10874,7 +10885,8 @@ function toggleArExpand(dk) {
   renderArTab();
 }
 
-function deleteArSnapshot(id) {
+async function deleteArSnapshot(id) {
+  if(!await _confirm('¿Eliminar esta carga de AR? No se puede deshacer.', {title:'Eliminar carga', danger:true, okLabel:'Eliminar'})) return;
   db.ar = (db.ar||[]).filter(s => s.id !== id);
   saveDB();
   renderArTab();
@@ -15909,6 +15921,7 @@ async function addNotifEmail() {
 }
 
 async function removeNotifEmail(email) {
+  if(!await _confirm(`¿Quitar ${email} de las notificaciones?`, {title:'Quitar notificación', okLabel:'Quitar'})) return;
   notifEmails = notifEmails.filter(e => e !== email);
   await saveNotifEmails();
 }
