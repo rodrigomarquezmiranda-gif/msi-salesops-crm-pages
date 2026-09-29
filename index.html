@@ -1504,7 +1504,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '29.09.26.5';
+const APP_VERSION = '29.09.26.6';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -7327,6 +7327,11 @@ let _pbmReports    = [];    // [{ cuit, month, rows }] — reportes cargados
 let _pbmActiveCuit = null;  // CUIT activo en tab bar
 let _pbmActiveMon  = null;  // Mes activo dentro del reseller
 let _pbmPendingFile= null;  // File en espera de asignación
+// Papelera: borrado suave — un reseller/reporte borrado se mueve acá (con fecha) en vez de
+// desaparecer del todo, para poder restaurarlo si fue un click accidental. Se guarda en Firebase
+// junto con el resto del PBM (_pbmSave) así sobrevive un refresh o un cambio de dispositivo.
+let _pbmResellersTrash = []; // [{ name, cuit, deletedAt }]
+let _pbmReportsTrash   = []; // [{ cuit, month, rows, deletedAt }]
 
 // ── Classification engine — TIER WATERFALL MODEL ─────────────
 // Regla cascada: cada componente se puntúa al effectiveTier acumulado hasta ÉL.
@@ -7791,7 +7796,9 @@ function _pbmSave() {
   try {
     const payload = JSON.stringify({
       resellers: _pbmResellers,
-      reports:   _pbmReports.map(r => ({ cuit: r.cuit, month: r.month, rows: r.rows }))
+      reports:   _pbmReports.map(r => ({ cuit: r.cuit, month: r.month, rows: r.rows })),
+      resellersTrash: _pbmResellersTrash,
+      reportsTrash:   _pbmReportsTrash.map(r => ({ cuit: r.cuit, month: r.month, rows: r.rows, name: r.name, deletedAt: r.deletedAt }))
     });
     _fbDB.ref(`${_currentCountry}/salesops_pbm`).set(payload);
   } catch(e) { console.warn('PBM save error:', e); }
@@ -7810,6 +7817,8 @@ function _pbmLoad() {
       const data = JSON.parse(raw);
       if (Array.isArray(data.resellers)) _pbmResellers = data.resellers;
       if (Array.isArray(data.reports))   _pbmReports   = data.reports;
+      _pbmResellersTrash = Array.isArray(data.resellersTrash) ? data.resellersTrash : [];
+      _pbmReportsTrash   = Array.isArray(data.reportsTrash)   ? data.reportsTrash   : [];
       // Re-render solo si el tab PBM está activo
       const pane = document.getElementById('tab-pbm');
       if (pane && pane.classList.contains('active')) renderPBMTab();
@@ -8135,6 +8144,23 @@ function _pbmShowManage() {
       <tbody>${rows}</tbody>
     </table>` : `<div style="color:#888;font-size:12px;margin-bottom:20px;text-align:center">Aún no hay resellers registrados.</div>`}
 
+    ${_pbmResellersTrash.length > 0 ? `
+    <div style="background:rgba(191,97,106,0.08);border:1px solid rgba(191,97,106,0.25);border-radius:8px;padding:12px;margin-bottom:20px">
+      <div style="font-weight:600;font-size:12px;margin-bottom:10px;color:#BF616A"><i class="ti ti-trash"></i> PAPELERA (${_pbmResellersTrash.length})</div>
+      ${_pbmResellersTrash.map(r => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid rgba(191,97,106,0.15);font-size:12px">
+          <div>
+            <span style="font-weight:600">${esc(r.name)}</span>
+            <span style="color:#888;font-family:monospace;font-size:11px;margin-left:6px">${_pbmFmtCuit(r.cuit)}</span>
+            <div style="color:#888;font-size:10px">Borrado: ${r.deletedAt ? new Date(r.deletedAt).toLocaleString('es-AR') : '—'}</div>
+          </div>
+          <div style="display:flex;gap:4px;flex-shrink:0">
+            <button onclick="_pbmRestoreReseller('${r.cuit}')" title="Restaurar" style="background:none;border:1px solid #A3BE8C;color:#A3BE8C;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer"><i class="ti ti-rotate"></i> Restaurar</button>
+            <button onclick="_pbmPurgeReseller('${r.cuit}')" title="Eliminar definitivamente" style="background:none;border:none;color:#BF616A;cursor:pointer;font-size:12px"><i class="ti ti-x"></i></button>
+          </div>
+        </div>`).join('')}
+    </div>` : ''}
+
     <div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:14px">
       <div style="font-weight:600;font-size:12px;margin-bottom:12px;color:#aaa">AGREGAR RESELLER</div>
 
@@ -8219,13 +8245,16 @@ function _pbmAddResellerFromModal() {
 
 async function _pbmRemoveReseller(cuit, skipRerender) {
   const r = _pbmResellerByCuit(cuit);
-  const repCount = _pbmReports.filter(rp => _pbmNormCuit(rp.cuit) === _pbmNormCuit(cuit)).length;
+  const repsToTrash = _pbmReports.filter(rp => _pbmNormCuit(rp.cuit) === _pbmNormCuit(cuit));
   const label = r ? `${r.name} (${_pbmFmtCuit(r.cuit)})` : cuit;
   const ok = await _confirm(
-    `¿Eliminar a ${label} de PBM? Se van a borrar también ${repCount ? `sus ${repCount} reporte${repCount!==1?'s':''} cargado${repCount!==1?'s':''}` : 'sus datos'}. No se puede deshacer.`,
+    `¿Eliminar a ${label} de PBM? ${repsToTrash.length ? `Se van a quitar también sus ${repsToTrash.length} reporte${repsToTrash.length!==1?'s':''} cargado${repsToTrash.length!==1?'s':''}. ` : ''}Vas a poder restaurarlo desde "Papelera" si fue un error.`,
     {title:'Eliminar cliente PBM', danger:true, okLabel:'Eliminar'}
   );
   if(!ok) return false;
+  const now = new Date().toISOString();
+  if(r) _pbmResellersTrash.push({ ...r, deletedAt: now });
+  repsToTrash.forEach(rp => _pbmReportsTrash.push({ ...rp, deletedAt: now }));
   _pbmResellers = _pbmResellers.filter(r => _pbmNormCuit(r.cuit) !== _pbmNormCuit(cuit));
   _pbmReports   = _pbmReports.filter(r => _pbmNormCuit(r.cuit) !== _pbmNormCuit(cuit));
   if (_pbmNormCuit(_pbmActiveCuit) === _pbmNormCuit(cuit)) { _pbmActiveCuit = null; _pbmActiveMon = null; }
@@ -8235,11 +8264,43 @@ async function _pbmRemoveReseller(cuit, skipRerender) {
 }
 
 async function _pbmRemoveReport(cuit, month) {
-  if(!await _confirm(`¿Eliminar el reporte de ${month} para este reseller? No se puede deshacer.`, {title:'Eliminar reporte', danger:true, okLabel:'Eliminar'})) return;
+  if(!await _confirm(`¿Eliminar el reporte de ${month} para este reseller? Vas a poder restaurarlo desde "Papelera" si fue un error.`, {title:'Eliminar reporte', danger:true, okLabel:'Eliminar'})) return;
+  const rep = _pbmReports.find(r => _pbmNormCuit(r.cuit)===_pbmNormCuit(cuit) && r.month===month);
+  if(rep) _pbmReportsTrash.push({ ...rep, deletedAt: new Date().toISOString() });
   _pbmReports = _pbmReports.filter(r => !((_pbmNormCuit(r.cuit)===_pbmNormCuit(cuit)) && r.month===month));
   _pbmActiveMon = (_pbmReportsFor(cuit)[0]||{}).month || null;
   _pbmSave();
   renderPBMTab();
+}
+
+// ── Papelera: restaurar o borrar definitivamente ──────────────────────────
+function _pbmRestoreReseller(cuit) {
+  const idx = _pbmResellersTrash.findIndex(r => _pbmNormCuit(r.cuit) === _pbmNormCuit(cuit));
+  if(idx === -1) return;
+  const [r] = _pbmResellersTrash.splice(idx, 1);
+  delete r.deletedAt;
+  if(!_pbmResellers.some(x => _pbmNormCuit(x.cuit) === _pbmNormCuit(cuit))) _pbmResellers.push(r);
+  // Restaurar también los reportes de este cliente que hayan quedado en la papelera
+  for(let i = _pbmReportsTrash.length - 1; i >= 0; i--) {
+    if(_pbmNormCuit(_pbmReportsTrash[i].cuit) === _pbmNormCuit(cuit)) {
+      const [rp] = _pbmReportsTrash.splice(i, 1);
+      delete rp.deletedAt;
+      _pbmReports.push(rp);
+    }
+  }
+  _pbmSave();
+  _pbmShowManage();
+  toast(`${r.name} restaurado.`);
+}
+
+async function _pbmPurgeReseller(cuit) {
+  const r = _pbmResellersTrash.find(x => _pbmNormCuit(x.cuit) === _pbmNormCuit(cuit));
+  const label = r ? `${r.name} (${_pbmFmtCuit(r.cuit)})` : cuit;
+  if(!await _confirm(`¿Eliminar definitivamente a ${label} y sus reportes? Esta vez no hay forma de recuperarlo.`, {title:'Eliminar definitivamente', danger:true, okLabel:'Eliminar para siempre'})) return;
+  _pbmResellersTrash = _pbmResellersTrash.filter(x => _pbmNormCuit(x.cuit) !== _pbmNormCuit(cuit));
+  _pbmReportsTrash   = _pbmReportsTrash.filter(x => _pbmNormCuit(x.cuit) !== _pbmNormCuit(cuit));
+  _pbmSave();
+  _pbmShowManage();
 }
 
 // ── Upload modal ──────────────────────────────────────────────
