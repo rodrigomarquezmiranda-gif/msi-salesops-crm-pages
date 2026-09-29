@@ -1020,13 +1020,13 @@
       <!-- IA -->
       <div id="tab-ia" class="tab-pane">
         <div class="ai-box" style="margin-bottom:1.25rem">
-          <div class="ai-box-header" style="display:flex;align-items:center;gap:8px">
-            <img src="./luckia-avatar.jpg" alt="LuckIA" style="width:26px;height:26px;border-radius:50%;object-fit:cover;border:1.5px solid var(--brand)" />
+          <div class="ai-box-header" style="display:flex;align-items:center;gap:10px">
+            <img src="./luckia-avatar.jpg" alt="LuckIA" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:2px solid var(--brand)" />
             LuckIA — Consultas sobre tus datos
           </div>
           <div style="font-size:13px;color:var(--text2);margin-bottom:10px">Preguntá en lenguaje natural sobre compras, precios, ranking de clientes o resellers — ej. "¿Segal compró A520 en la última semana? ¿dónde y a qué precio?". Los datos nunca salen de tu sesión salvo el resultado puntual de cada consulta.</div>
           <div id="ai-chat-log" style="display:flex;flex-direction:column;gap:12px;min-height:220px;max-height:65vh;overflow-y:auto;margin-bottom:10px;padding:4px 2px"></div>
-          <div id="ai-chat-loading" style="display:none;margin-bottom:10px"><div class="loading-row"><img src="./luckia-avatar.jpg" alt="" style="width:18px;height:18px;border-radius:50%;object-fit:cover;vertical-align:-4px;margin-right:4px" /> LuckIA está pensando...</div></div>
+          <div id="ai-chat-loading" style="display:none;margin-bottom:10px"><div class="loading-row"><img src="./luckia-avatar.jpg" alt="" style="width:22px;height:22px;border-radius:50%;object-fit:cover;vertical-align:-6px;margin-right:5px" /> LuckIA está pensando...</div></div>
           <div style="display:flex;gap:8px">
             <input type="text" id="ai-chat-input" placeholder="Preguntá algo sobre tus datos..."
               style="flex:1;padding:9px 12px;border-radius:var(--radius);border:0.5px solid var(--border2);background:var(--bg2);color:var(--text);font-size:0.9rem"
@@ -1504,7 +1504,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '29.09.26.6';
+const APP_VERSION = '29.09.26.7';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -2299,7 +2299,7 @@ function _renderAiChatLog() {
       : '';
     return `<div style="align-self:flex-start;display:flex;flex-direction:column;gap:2px;max-width:90%">
       <div style="display:flex;gap:8px;align-items:flex-start">
-        <img src="./luckia-avatar.jpg" alt="" style="width:24px;height:24px;border-radius:50%;object-fit:cover;flex-shrink:0;margin-top:2px" />
+        <img src="./luckia-avatar.jpg" alt="" style="width:30px;height:30px;border-radius:50%;object-fit:cover;flex-shrink:0;margin-top:2px" />
         ${bubble}
       </div>
       ${exportBtn}
