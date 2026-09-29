@@ -470,6 +470,9 @@
       <button class="nav-item" id="nav-rotcompare" onclick="gotoTab('rotcompare')">
         <i class="ti ti-arrows-shuffle" style="color:#9B72AA"></i> Comparador de Rotación
       </button>
+      <button class="nav-item" id="nav-impact" onclick="gotoTab('impact')">
+        <i class="ti ti-chart-arrows" style="color:#D08770"></i> Impacto de Programa
+      </button>
       <button class="nav-item" id="nav-clients" onclick="gotoTab('clients')">
         <i class="ti ti-users" style="color:#4B8ABF"></i> Ranking de Clientes
       </button>
@@ -818,6 +821,86 @@
       <!-- RESELLERS T3 -->
       <div id="tab-resellers-t3" class="tab-pane">
         <div id="resellers-t3-content"></div>
+      </div>
+
+      <!-- IMPACTO DE PROGRAMA -->
+      <div id="tab-impact" class="tab-pane">
+        <div class="ai-box" style="margin-top:0">
+          <div class="ai-box-header" style="color:var(--text)"><i class="ti ti-chart-arrows" style="color:var(--brand-text)"></i> Impacto de Programa</div>
+          <div style="font-size:13px;color:var(--text2)">Comparó ventas de un producto o categoría, en los distribuidores que elijas, antes y después de una fecha — útil para ver si un programa o promoción movió la aguja.</div>
+        </div>
+
+        <div class="field" style="margin:1.25rem 0 .75rem">
+          <label>Distribuidores</label>
+          <div id="impact-dist-pills" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"></div>
+        </div>
+
+        <div class="field-row" style="margin-bottom:.75rem">
+          <div class="field" style="margin-bottom:0">
+            <label>Categoría</label>
+            <select id="impact-category" onchange="updateImpactProductOptions()">
+              <option value="all">Todas las categorías</option>
+              <option value="motherboard">Motherboards</option>
+              <option value="monitor">Monitores</option>
+              <option value="vga">Placas de Video</option>
+              <option value="gabinete">Gabinetes</option>
+              <option value="psu">Fuentes</option>
+              <option value="minipc">Mini PC</option>
+              <option value="ssd">Almacenamiento (SSD)</option>
+              <option value="cooling">Cooling</option>
+              <option value="accesorios">Accesorios</option>
+            </select>
+          </div>
+          <div class="field" style="margin-bottom:0;flex:2">
+            <label>Producto (opcional — dejalo vacío para ver toda la categoría)</label>
+            <input type="text" id="impact-search" placeholder="Buscar por modelo o descripción..." oninput="_debounceImpactSearch()" style="margin-bottom:6px" />
+            <select id="impact-product" onchange="renderImpactTab()">
+              <option value="">(toda la categoría)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field" style="margin-bottom:.75rem">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="impact-manual-toggle" onchange="_impactToggleManual()" style="width:auto"> Elegir manualmente los rangos "antes" y "después" (en vez de una fecha de corte)</label>
+        </div>
+
+        <div id="impact-auto-range" class="field-row" style="margin-bottom:1.25rem">
+          <div class="field" style="margin-bottom:0">
+            <label>Fecha del programa (corte)</label>
+            <input type="date" id="impact-cutoff" onchange="renderImpactTab()">
+          </div>
+          <div class="field" style="margin-bottom:0;max-width:140px">
+            <label>Semanas antes</label>
+            <input type="number" id="impact-weeks-before" value="4" min="1" max="52" onchange="renderImpactTab()">
+          </div>
+          <div class="field" style="margin-bottom:0;max-width:140px">
+            <label>Semanas después</label>
+            <input type="number" id="impact-weeks-after" value="4" min="1" max="52" onchange="renderImpactTab()">
+          </div>
+        </div>
+
+        <div id="impact-manual-range" class="field-row" style="margin-bottom:1.25rem;display:none">
+          <div class="field" style="margin-bottom:0">
+            <label>Antes — desde</label>
+            <input type="date" id="impact-before-start" onchange="renderImpactTab()">
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label>Antes — hasta</label>
+            <input type="date" id="impact-before-end" onchange="renderImpactTab()">
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label>Después — desde</label>
+            <input type="date" id="impact-after-start" onchange="renderImpactTab()">
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label>Después — hasta</label>
+            <input type="date" id="impact-after-end" onchange="renderImpactTab()">
+          </div>
+        </div>
+
+        <div class="export-row"><button class="btn" onclick="exportImpactExcel()"><i class="ti ti-file-spreadsheet" style="font-size:14px"></i> Excel</button></div>
+
+        <div id="impact-content" style="margin-top:1rem"></div>
       </div>
 
       <!-- RANKING POR CATEGORÍA -->
@@ -1504,7 +1587,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '29.09.26.8';
+const APP_VERSION = '29.09.26.9';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -2577,8 +2660,8 @@ function parseDurationString(str) {
 }
 
 // ─── TAB NAV ──────────────────────────────────────────
-const TABS = ['dashboard','pi','rebates','pricelist','salesprices','rotation','trend','rotcompare','clients','resellers-t1','resellers-t2','resellers-t3','catranking','clientcompare','imports','etailers','ar','mkt','ia','notificaciones','usuarios','semaforo','sugeridos','share','pbm'];
-const TITLES = { dashboard:'Dashboard', pi:'Ordenes — Proforma Invoice', rebates:'Rebates: BER · SOR · SIR · PP', pricelist:'Lista de Precios', salesprices:'Precios de Venta', rotation:'Inventario/Ventas', trend:'Tendencia de Venta', rotcompare:'Comparador de Rotación', clients:'Ranking de Clientes', 'resellers-t1':'Resellers T1', 'resellers-t2':'Resellers T2', 'resellers-t3':'Resellers T3', catranking:'Ranking por Categoría', clientcompare:'Comparador de Clientes', imports:'Análisis de Importaciones', etailers:'Etailers', ar:'Estado de Cuentas', mkt:'Marketing Budget', ia:'Analizar archivo con IA', notificaciones:'Notificaciones de Precios', usuarios:'Gestión de Usuarios', semaforo:'Semáforo de Stock', sugeridos:'Sugeridos de Compra', share:'Mi Participación', pbm:'Powered by MSI' };
+const TABS = ['dashboard','pi','rebates','pricelist','salesprices','rotation','trend','rotcompare','impact','clients','resellers-t1','resellers-t2','resellers-t3','catranking','clientcompare','imports','etailers','ar','mkt','ia','notificaciones','usuarios','semaforo','sugeridos','share','pbm'];
+const TITLES = { dashboard:'Dashboard', pi:'Ordenes — Proforma Invoice', rebates:'Rebates: BER · SOR · SIR · PP', pricelist:'Lista de Precios', salesprices:'Precios de Venta', rotation:'Inventario/Ventas', trend:'Tendencia de Venta', rotcompare:'Comparador de Rotación', impact:'Impacto de Programa', clients:'Ranking de Clientes', 'resellers-t1':'Resellers T1', 'resellers-t2':'Resellers T2', 'resellers-t3':'Resellers T3', catranking:'Ranking por Categoría', clientcompare:'Comparador de Clientes', imports:'Análisis de Importaciones', etailers:'Etailers', ar:'Estado de Cuentas', mkt:'Marketing Budget', ia:'Analizar archivo con IA', notificaciones:'Notificaciones de Precios', usuarios:'Gestión de Usuarios', semaforo:'Semáforo de Stock', sugeridos:'Sugeridos de Compra', share:'Mi Participación', pbm:'Powered by MSI' };
 
 function gotoTab(tab) {
   currentTab = tab;
@@ -2602,6 +2685,7 @@ function gotoTab(tab) {
   if(tab==='rotation') { renderRotationTab(); renderRotationHistory(); }
   if(tab==='trend') renderTopMovers();
   if(tab==='rotcompare') { renderRotcomparePeriodPills(); updateRotCompareProductOptions(); }
+  if(tab==='impact') { renderImpactDistPills(); updateImpactProductOptions(); }
   if(tab==='clients') updateClientsMonthOptions();
   if(tab==='resellers-t1') renderResellerTab('t1');
   if(tab==='resellers-t2') renderResellerTab('t2');
@@ -11750,6 +11834,250 @@ function updateRotCompareProductOptions() {
   }
   renderRotCompareTab();
 }
+
+// ─── IMPACTO DE PROGRAMA ──────────────────────────────────────────────────
+// Compara unidades vendidas (de un modelo puntual o de toda una categoría), en los
+// distribuidores elegidos, entre un período "antes" y un período "después" — pensado
+// para medir si una promo/programa movió la aguja. Usa db.weeklyReports igual que
+// Comparador de Rotación: cada snapshot 'sales' representa lo vendido en esa semana,
+// identificada por su periodEnd.
+let _impactDists = new Set(Object.keys(DISTRIBUTORS)); // todos seleccionados por defecto
+let _impactSearchTimer = null;
+function _debounceImpactSearch() {
+  clearTimeout(_impactSearchTimer);
+  _impactSearchTimer = setTimeout(updateImpactProductOptions, 250);
+}
+
+function renderImpactDistPills() {
+  const wrap = document.getElementById('impact-dist-pills');
+  if(!wrap) return;
+  wrap.innerHTML = Object.entries(DISTRIBUTORS).map(([k,label]) => {
+    const active = _impactDists.has(k);
+    return `<button onclick="_toggleImpactDist('${k}')" style="background:${active?'var(--brand)':'none'};border:1px solid ${active?'var(--brand)':'var(--border2)'};color:${active?'#fff':'var(--text2)'};border-radius:20px;padding:5px 14px;font-size:12px;cursor:pointer;font-weight:${active?600:400}">${esc(label)}</button>`;
+  }).join('');
+}
+function _toggleImpactDist(k) {
+  if(_impactDists.has(k)) _impactDists.delete(k); else _impactDists.add(k);
+  renderImpactDistPills();
+  renderImpactTab();
+}
+
+function updateImpactProductOptions() {
+  const catFilter = document.getElementById('impact-category')?.value || 'all';
+  const q = (document.getElementById('impact-search')?.value || '').toLowerCase();
+  let groups = getProductComparisonGroups();
+  if(catFilter !== 'all') groups = groups.filter(g => g.category === catFilter);
+  if(q) groups = groups.filter(g => g.label.toLowerCase().includes(q) || g.key.toLowerCase().includes(q));
+  const sel = document.getElementById('impact-product');
+  if(!sel) return;
+  const prevVal = sel.value;
+  if(groups.length === 0) {
+    sel.innerHTML = `<option value="">(toda la categoría)</option><option value="" disabled>(sin coincidencias)</option>`;
+  } else {
+    sel.innerHTML = `<option value="">(toda la categoría)</option>` +
+      groups.map(g => `<option value="${esc(g.key)}">${esc(g.label)}${g.distributors.size>1?' — '+g.distributors.size+' prov.':''}</option>`).join('');
+    if(prevVal && groups.some(g=>g.key===prevVal)) sel.value = prevVal;
+  }
+  renderImpactTab();
+}
+
+function _impactToggleManual() {
+  const manual = document.getElementById('impact-manual-toggle').checked;
+  document.getElementById('impact-auto-range').style.display = manual ? 'none' : '';
+  document.getElementById('impact-manual-range').style.display = manual ? '' : 'none';
+  renderImpactTab();
+}
+
+function _impactGetRanges() {
+  const manual = document.getElementById('impact-manual-toggle')?.checked;
+  if(manual) {
+    const bS = document.getElementById('impact-before-start')?.value;
+    const bE = document.getElementById('impact-before-end')?.value;
+    const aS = document.getElementById('impact-after-start')?.value;
+    const aE = document.getElementById('impact-after-end')?.value;
+    if(!bS || !bE || !aS || !aE) return null;
+    return { beforeStart:bS, beforeEnd:bE, afterStart:aS, afterEnd:aE };
+  }
+  const cutoff = document.getElementById('impact-cutoff')?.value;
+  if(!cutoff) return null;
+  const wBefore = parseInt(document.getElementById('impact-weeks-before')?.value) || 4;
+  const wAfter  = parseInt(document.getElementById('impact-weeks-after')?.value) || 4;
+  const cutoffD = new Date(cutoff + 'T00:00:00');
+  const bStart = new Date(cutoffD); bStart.setDate(bStart.getDate() - wBefore*7);
+  const bEnd   = new Date(cutoffD); bEnd.setDate(bEnd.getDate() - 1);
+  const aStart = new Date(cutoffD);
+  const aEnd   = new Date(cutoffD); aEnd.setDate(aEnd.getDate() + wAfter*7 - 1);
+  const f = d => d.toISOString().slice(0,10);
+  return { beforeStart:f(bStart), beforeEnd:f(bEnd), afterStart:f(aStart), afterEnd:f(aEnd) };
+}
+
+function computeProgramImpact() {
+  const ranges = _impactGetRanges();
+  if(!ranges || !_impactDists.size) return null;
+  const modelKey = document.getElementById('impact-product')?.value || '';
+  const catFilter = document.getElementById('impact-category')?.value || 'all';
+  const groupsByKey = new Map(getProductComparisonGroups().map(g => [g.key, g]));
+  const selectedGroup = modelKey ? groupsByKey.get(modelKey) : null;
+
+  const matchesProduct = (r) => {
+    if(_isNBVariant(r.description)) return false;
+    if(modelKey) {
+      return extractProductModelKey(r.description) === modelKey || (r.code && selectedGroup && selectedGroup.codes.has(r.code.toUpperCase().trim()));
+    }
+    if(catFilter !== 'all') return classifyProductCategory(r.description) === catFilter;
+    return true;
+  };
+
+  const results = Object.keys(DISTRIBUTORS).filter(dk => _impactDists.has(dk)).map(dk => {
+    let beforeQty = 0, afterQty = 0;
+    const beforeClients = new Set(), afterClients = new Set();
+    db.weeklyReports.filter(s => s.distributor===dk && s.reportType==='sales').forEach(snap => {
+      const d = snap.periodEnd;
+      if(!d) return;
+      const inBefore = d >= ranges.beforeStart && d <= ranges.beforeEnd;
+      const inAfter  = d >= ranges.afterStart  && d <= ranges.afterEnd;
+      if(!inBefore && !inAfter) return;
+      (snap.rows||[]).forEach(r => {
+        if(!matchesProduct(r)) return;
+        const qty = Math.abs(r.qty||0);
+        if(inBefore) { beforeQty += qty; if(r.client) beforeClients.add(normClientKey(r.client)); }
+        else { afterQty += qty; if(r.client) afterClients.add(normClientKey(r.client)); }
+      });
+    });
+    const pct = beforeQty > 0 ? ((afterQty-beforeQty)/beforeQty*100) : (afterQty > 0 ? null : 0); // null = no había ventas antes ("nuevo")
+    return { dist:dk, beforeQty, afterQty, pct, beforeClients:beforeClients.size, afterClients:afterClients.size };
+  });
+
+  const modelLabel = selectedGroup ? selectedGroup.label : (catFilter!=='all' ? (CATEGORY_LABELS[catFilter]||catFilter) : 'Todos los productos');
+  return { ranges, results, modelLabel };
+}
+
+function _impactPctBadge(pct) {
+  if(pct === null) return `<span style="color:var(--blue-text);font-weight:700">Nuevo</span>`;
+  const up = pct >= 0;
+  return `<span style="color:${up?'var(--green-text)':'#c0392b'};font-weight:700">${up?'+':''}${pct.toFixed(1)}%</span>`;
+}
+
+function renderImpactTab() {
+  const wrap = document.getElementById('impact-content');
+  if(!wrap) return;
+  if(!_impactDists.size) {
+    wrap.innerHTML = `<div class="empty-state"><i class="ti ti-building-warehouse"></i><p>Elegí al menos un distribuidor.</p></div>`;
+    return;
+  }
+  const data = computeProgramImpact();
+  if(!data) {
+    wrap.innerHTML = `<div class="empty-state"><i class="ti ti-calendar"></i><p>Completá la fecha del programa (o los 4 rangos manuales) para ver el impacto.</p></div>`;
+    return;
+  }
+  const { ranges, results, modelLabel } = data;
+  const totalBefore = results.reduce((s,r)=>s+r.beforeQty,0);
+  const totalAfter  = results.reduce((s,r)=>s+r.afterQty,0);
+  const totalPct = totalBefore>0 ? ((totalAfter-totalBefore)/totalBefore*100) : (totalAfter>0?null:0);
+
+  wrap.innerHTML = `
+    <div style="font-size:12px;color:var(--text2);margin-bottom:12px">
+      <b>${esc(modelLabel)}</b> · Antes: ${fmtRotDate(ranges.beforeStart)} – ${fmtRotDate(ranges.beforeEnd)} · Después: ${fmtRotDate(ranges.afterStart)} – ${fmtRotDate(ranges.afterEnd)}
+    </div>
+    <div class="table-scroll"><table class="data-table">
+      <thead><tr>
+        <th>Distribuidor</th><th style="text-align:right">Uds. antes</th><th style="text-align:right">Uds. después</th><th style="text-align:right">Variación</th><th style="text-align:right">Clientes antes</th><th style="text-align:right">Clientes después</th>
+      </tr></thead>
+      <tbody>
+        ${results.map(r => `<tr>
+          <td>${esc(DISTRIBUTORS[r.dist])}</td>
+          <td style="text-align:right">${r.beforeQty.toLocaleString('es-AR')}</td>
+          <td style="text-align:right">${r.afterQty.toLocaleString('es-AR')}</td>
+          <td style="text-align:right">${_impactPctBadge(r.pct)}</td>
+          <td style="text-align:right">${r.beforeClients}</td>
+          <td style="text-align:right">${r.afterClients}</td>
+        </tr>`).join('')}
+        <tr style="font-weight:700;border-top:2px solid var(--border2)">
+          <td>Total</td>
+          <td style="text-align:right">${totalBefore.toLocaleString('es-AR')}</td>
+          <td style="text-align:right">${totalAfter.toLocaleString('es-AR')}</td>
+          <td style="text-align:right">${_impactPctBadge(totalPct)}</td>
+          <td></td><td></td>
+        </tr>
+      </tbody>
+    </table></div>`;
+}
+
+async function exportImpactExcel() {
+  const data = computeProgramImpact();
+  if(!data) { toast('Completá los filtros y las fechas antes de exportar.'); return; }
+  const { ranges, results, modelLabel } = data;
+  const totalBefore = results.reduce((s,r)=>s+r.beforeQty,0);
+  const totalAfter  = results.reduce((s,r)=>s+r.afterQty,0);
+
+  const NAVY='FF1F2A44', ORANGE='FFFF6600', WHITE='FFFFFFFF', GRAY='FFF5F5F5';
+  const BORDER = { top:{style:'thin',color:{argb:'FFCCCCCC'}}, left:{style:'thin',color:{argb:'FFCCCCCC'}}, bottom:{style:'thin',color:{argb:'FFCCCCCC'}}, right:{style:'thin',color:{argb:'FFCCCCCC'}} };
+  const sf = (argb) => ({ type:'pattern', pattern:'solid', fgColor:{argb} });
+  const dateStr = new Date().toLocaleDateString('es-AR');
+
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Impacto de Programa');
+  const headers = ['Distribuidor','Uds. antes','Uds. después','Variación %','Clientes antes','Clientes después'];
+  const NC = headers.length;
+  ws.columns = [{width:22},{width:12},{width:14},{width:14},{width:14},{width:16}];
+
+  ws.addRow([]); ws.mergeCells(1,1,1,NC);
+  const t1 = ws.getCell('A1');
+  t1.value = 'MSI — Impacto de Programa';
+  t1.fill = sf(NAVY); t1.font = { bold:true, size:15, color:{argb:WHITE}, name:'Calibri' };
+  t1.alignment = { horizontal:'left', vertical:'middle' };
+  ws.getRow(1).height = 28;
+
+  ws.addRow([]); ws.mergeCells(2,1,2,NC);
+  const t2 = ws.getCell('A2');
+  t2.value = `${modelLabel}   ·   Antes: ${ranges.beforeStart} a ${ranges.beforeEnd}   ·   Después: ${ranges.afterStart} a ${ranges.afterEnd}   ·   Generado: ${dateStr}`;
+  t2.fill = sf('FF2C3E6B'); t2.font = { size:10, color:{argb:WHITE}, name:'Calibri' };
+  t2.alignment = { horizontal:'left', vertical:'middle' };
+  ws.getRow(2).height = 16;
+
+  ws.addRow([]); ws.mergeCells(3,1,3,NC); ws.getCell('A3').fill = sf(ORANGE); ws.getRow(3).height = 4;
+  ws.addRow([]); ws.getRow(4).height = 6;
+
+  ws.addRow(headers);
+  const hr = ws.lastRow.number;
+  headers.forEach((_,i) => {
+    const c = ws.getCell(hr, i+1);
+    c.fill = sf(ORANGE); c.font = { bold:true, size:10, color:{argb:WHITE}, name:'Calibri' };
+    c.alignment = { horizontal:'center', vertical:'middle', wrapText:true }; c.border = BORDER;
+  });
+  ws.getRow(hr).height = 22;
+
+  results.forEach((r, idx) => {
+    const rowVals = [DISTRIBUTORS[r.dist], r.beforeQty, r.afterQty, r.pct===null?'Nuevo':Math.round(r.pct*10)/10, r.beforeClients, r.afterClients];
+    ws.addRow(rowVals);
+    const rn = ws.lastRow.number;
+    const fill = sf(idx % 2 === 0 ? GRAY : WHITE);
+    rowVals.forEach((v,i) => {
+      const c = ws.getCell(rn, i+1);
+      c.fill = fill; c.border = BORDER; c.font = { size:9.5, name:'Calibri' };
+      c.alignment = i===0 ? { horizontal:'left', vertical:'middle' } : { horizontal:'right', vertical:'middle' };
+      if(i===3 && typeof v === 'number') { c.numFmt = '+0.0"%";-0.0"%"'; c.font = { size:9.5, bold:true, color:{argb: v>=0?'FF2D6A2D':'FFC0392B'}, name:'Calibri' }; }
+    });
+  });
+
+  const totalPctVal = totalBefore>0 ? Math.round(((totalAfter-totalBefore)/totalBefore)*1000)/10 : (totalAfter>0?'Nuevo':0);
+  const tr = ws.addRow(['TOTAL', totalBefore, totalAfter, totalPctVal, '', '']);
+  tr.eachCell((cell,c) => {
+    cell.fill = sf(NAVY); cell.font = { bold:true, color:{argb:WHITE}, size:11, name:'Calibri' };
+    if(c<=3||c===3) cell.alignment = { horizontal: c===1?'left':'right', vertical:'middle' };
+  });
+
+  const fname = `impacto-programa_${new Date().toISOString().slice(0,10)}.xlsx`;
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = fname;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('Excel exportado.');
+}
+
 function getModelGroupComparison(modelKey, monthKey) {
   const rows = [];
   Object.keys(DISTRIBUTORS).forEach(distKey => {
