@@ -1504,7 +1504,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '29.09.26.7';
+const APP_VERSION = '29.09.26.8';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -2211,6 +2211,18 @@ Formato de respuesta:
 Presentación: el chat renderiza markdown (negrita, listas, tablas), así que usalo para que se lea bien — cuando haya 2 o más filas de datos (varias compras, varios distribuidores, un ranking) armá una tabla en markdown con esas columnas en vez de un párrafo corrido; para 1 solo dato alcanza con una frase directa. Usá negrita para resaltar el dato clave de cada respuesta (nombre, precio, fecha). Un emoji ocasional al arranque de una idea está bien si suma claridad (📅 fecha, 💰 precio, 📈/📉 tendencia, ⚠️ alerta) pero no lo satures — no pongas emoji en cada línea.
 Respondé siempre en español, tono directo y profesional, sin rodeos.`;
 
+// La fecha de hoy se calcula en cada consulta (no queda fija en el string de arriba) para que
+// LuckIA resuelva bien "este mes"/"la semana pasada"/etc. — sin esto, el modelo no tiene forma
+// de saber qué día es y termina adivinando una fecha de su propio entrenamiento (bug real: contestaba
+// como si "este mes" fuera julio 2025).
+function _aiSystemPromptWithDate() {
+  const now = new Date();
+  const monthNames = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  const hoy = `${now.getDate()} de ${monthNames[now.getMonth()]} de ${now.getFullYear()}`;
+  const mesActual = now.toISOString().slice(0,7); // YYYY-MM, para pasarle a herramientas como resellers_tier
+  return CRM_AI_SYSTEM_PROMPT + `\n\nHoy es ${hoy} (mes actual en formato YYYY-MM: ${mesActual}). Usá esta fecha como referencia real para resolver "este mes", "la semana pasada", "el último trimestre", etc. — nunca asumas otra fecha.`;
+}
+
 let _aiChatHistory = []; // [{role:'user'|'assistant', content: string | array}]
 
 // Mini-renderer de markdown para las respuestas del chat — soporta lo que la IA
@@ -2394,7 +2406,7 @@ async function _callAiWorker(messages) {
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
       max_tokens: 4096,
-      system: CRM_AI_SYSTEM_PROMPT,
+      system: _aiSystemPromptWithDate(),
       tools: CRM_AI_TOOLS,
       messages
     })
