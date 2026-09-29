@@ -1269,7 +1269,7 @@
     <div class="modal-footer">
       <button class="btn btn-danger" id="pf-btn-delete" onclick="deletePIItem()" style="display:none">Eliminar</button>
       <button class="btn" onclick="closeOverlay('modal-pi')">Cancelar</button>
-      <button class="btn btn-primary" onclick="savePIItem()">Guardar</button>
+      <button class="btn btn-primary" id="pf-save-btn" onclick="savePIItem()">Guardar</button>
     </div>
   </div>
 </div>
@@ -1504,7 +1504,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '28.09.26.5';
+const APP_VERSION = '29.09.26.1';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -2745,9 +2745,15 @@ function downloadPIFile(kind) {
   if(!f) return;
   const a = document.createElement('a'); a.href = f.dataUrl; a.download = f.name || (kind+'.pdf'); a.click();
 }
+let _savingPI = false; // evita duplicados: si el click queda encolado mientras renderAll() bloquea el hilo, este guard ignora los reintentos
 async function savePIItem() {
+  if(_savingPI) return; // ya hay un guardado de esta PI en curso — ignorar clicks repetidos
   const name = document.getElementById('pf-name').value.trim();
   if(!name) { document.getElementById('pf-name').focus(); _alert('Ingresá el N° de PI antes de guardar.', {type:'warning', title:'Campo requerido'}); return; }
+  _savingPI = true;
+  const saveBtn = document.getElementById('pf-save-btn');
+  if(saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Guardando...'; }
+  try {
   const existing = editingPIId ? db.pi.find(x=>x.id===editingPIId) : null;
   const newStatus = document.getElementById('pf-status').value;
   const newShipmentType = document.getElementById('pf-shipment-type')?.value || '';
@@ -2786,6 +2792,13 @@ async function savePIItem() {
   if(editingPIId) db.pi = db.pi.filter(x => x.id !== editingPIId);
   db.pi.push(item);
   saveDB(); renderAll(); closeOverlay('modal-pi');
+  } catch(err) {
+    console.error('Error guardando PI:', err);
+    _alert('Ocurrió un error al guardar la orden: ' + (err?.message || err), {type:'error', title:'Error al guardar'});
+  } finally {
+    _savingPI = false;
+    if(saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Guardar'; }
+  }
 }
 async function deletePIItem() {
   if(!editingPIId) return;
