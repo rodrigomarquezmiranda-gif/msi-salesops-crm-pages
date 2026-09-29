@@ -1504,7 +1504,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '29.09.26.1';
+const APP_VERSION = '29.09.26.2';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -1656,7 +1656,18 @@ async function loadDB() {
         _idbGetYear('salesops_weekly'),
         _idbGetYear('salesops_imports'),
       ]);
-      db.pi            = piRaw  ? JSON.parse(piRaw)  : [];
+      // piRaw puede ser: string JSON legacy (array completo) u objeto {id: pi} (nuevo formato por-id).
+      if(piRaw) {
+        try {
+          const parsedPi = typeof piRaw === 'string' ? JSON.parse(piRaw) : piRaw;
+          const allPi = Array.isArray(parsedPi) ? parsedPi : Object.values(parsedPi).filter(Boolean);
+          const tPi = allPi.filter(p => p._deleted).map(p => p.id);
+          if(tPi.length) db._piTombstones = [...new Set([...(db._piTombstones||[]), ...tPi])];
+          db.pi = allPi.filter(p => !p._deleted);
+        } catch(e) { console.error('Error parseando salesops_pi:', e); db.pi = []; }
+      } else {
+        db.pi = [];
+      }
       db.ber           = berR   ? JSON.parse(berR)   : [];
       db.sor           = sorR   ? JSON.parse(sorR)   : [];
       db.sir           = sirR   ? JSON.parse(sirR)   : [];
@@ -1742,28 +1753,21 @@ let _isSavingLocally = false;
 // transacción que FUSIONA los PI locales con los que ya están en Firebase.
 // Así, si el usuario A sube un PI mientras el usuario B ya tiene la app abierta,
 // el saveDB() de B no borra el PI de A.
+// Escribe cada PI en su propio path (salesops_pi_2026/{id}) en vez de un único string
+// con el array completo. Antes, todo el array se guardaba como UN SOLO valor string, y
+// Firebase Realtime Database rechaza cualquier string de más de 10MB — con años de PIs
+// y PDFs adjuntos en base64, ese límite ya se superó y CADA guardado empezó a fallar
+// silenciosamente (transaction failed: "string greater than 10485760 utf8 bytes").
+// Con paths por-id, cada PI pesa su propio valor (muy lejos de 10MB) y además el merge
+// entre usuarios concurrentes es automático: un multi-path update solo toca los ids que
+// mandamos, nunca pisa los PIs que otro usuario acaba de subir.
 function _piMergeTransaction() {
-  return _fbDB.ref(_yk('salesops_pi')).transaction(currentVal => {
-    // currentVal: lo que hay actualmente en Firebase (puede ser string JSON, null, o un objeto si ya migrado)
-    let remote = [];
-    if(currentVal !== null) {
-      try {
-        remote = typeof currentVal === 'string' ? JSON.parse(currentVal) : Object.values(currentVal);
-        if(!Array.isArray(remote)) remote = [];
-      } catch(e) { remote = []; }
-    }
-    // Merge: indexar por id. Primero los remotos, luego los locales los sobreescriben.
-    // Los PI que estén en Firebase pero no en la copia local del usuario se PRESERVAN.
-    // IMPORTANTE — tombstones (_deleted:true): si el admin borró un PI, se escribe
-    // { id, _deleted:true } a Firebase para que TODOS los clientes propaguen el borrado.
-    // El tombstone sobreescribe el registro original en remote.
-    const byId = {};
-    remote.forEach(p => { if(p && p.id) byId[p.id] = p; });
-    (db.pi || []).forEach(p => { if(p && p.id) byId[p.id] = p; });
-    // Asegurar que los tombstones locales siempre ganen (nunca vuelvan a ser revividos por remote)
-    (db._piTombstones || []).forEach(id => { byId[id] = { id, _deleted: true }; });
-    return JSON.stringify(Object.values(byId));
-  });
+  const base = _yk('salesops_pi');
+  const updates = {};
+  (db.pi || []).forEach(p => { if(p && p.id) updates[`${base}/${p.id}`] = p; });
+  (db._piTombstones || []).forEach(id => { updates[`${base}/${id}`] = { id, _deleted: true }; });
+  if(!Object.keys(updates).length) return Promise.resolve();
+  return _fbDB.ref().update(updates);
 }
 
 function saveDB() {
