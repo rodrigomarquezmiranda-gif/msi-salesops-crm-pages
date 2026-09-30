@@ -1587,7 +1587,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '29.09.26.9';
+const APP_VERSION = '30.09.26.1';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -1865,11 +1865,18 @@ function saveDB() {
   // salesops_resellers: cualquier rol puede modificarlo (resellers, targets, manual)
   const resellersSave = IDB.set('salesops_resellers', JSON.stringify({ resellers: db.resellers||{t1:[],t2:[],t3:[]}, resellerTargets: db.resellerTargets||{}, resellerManual: db.resellerManual||{} }));
 
+  // salesops_mkt: cualquier rol puede modificarlo (lo usa el gerente de Marketing, que no
+  // necesariamente es admin) — antes estaba adentro del bloque admin-only de abajo, así que
+  // ningún rol no-admin llegaba a guardarlo en Firebase nunca (fallaba en silencio: el archivo
+  // quedaba solo en memoria del navegador hasta que la sync en tiempo real lo pisaba de nuevo
+  // con la versión vieja del servidor). Requiere que las reglas de Firebase permitan escribir
+  // en 'salesops_mkt_*' para cualquier usuario habilitado — ver nota en Firebase Console.
+  const mktSave = IDB.set(_yk('salesops_mkt'), JSON.stringify(db.mkt||[]));
+
   // Resto de arrays: solo admin los escribe (reader-pi, readonly y distributor no tienen permiso Firebase)
   const otherSaves = _currentRole === 'admin'
     ? [
         IDB.set(_yk('salesops_ar'),      JSON.stringify(db.ar           ||[])),
-        IDB.set(_yk('salesops_mkt'),     JSON.stringify(db.mkt          ||[])),
         IDB.set(_yk('salesops_ber'),     JSON.stringify(db.ber          ||[])),
         IDB.set(_yk('salesops_sor'),     JSON.stringify(db.sor          ||[])),
         IDB.set(_yk('salesops_sir'),     JSON.stringify(db.sir          ||[])),
@@ -1880,14 +1887,24 @@ function saveDB() {
       ]
     : [];
 
-  Promise.allSettled([piSave, resellersSave, ...otherSaves])
-    .then(([piResult, resResult, ...otherResults]) => {
+  Promise.allSettled([piSave, resellersSave, mktSave, ...otherSaves])
+    .then(([piResult, resResult, mktResult, ...otherResults]) => {
       setTimeout(() => { _isSavingLocally = false; }, 800);
-      // Resellers: cualquier rol debe poder guardar — si falla, mostrar error
+      // Resellers y Marketing Budget: cualquier rol debe poder guardar — si falla, mostrar error siempre
       if(resResult.status === 'rejected') {
         _isSavingLocally = false;
         console.error('Error guardando resellers:', resResult.reason);
         _alert('No se pudo guardar resellers: ' + (resResult.reason?.message || resResult.reason), {type:'error', title:'Error al guardar'});
+        return;
+      }
+      if(mktResult.status === 'rejected') {
+        _isSavingLocally = false;
+        console.error('Error guardando Marketing Budget:', mktResult.reason);
+        const e = mktResult.reason;
+        const msg = e?.code === 'PERMISSION_DENIED'
+          ? 'Sin permisos para guardar Marketing Budget en Firebase. Pedile al administrador que actualice las reglas de la base de datos.'
+          : 'No se pudo guardar Marketing Budget: ' + (e?.message || e);
+        _alert(msg, {type:'error', title:'Error al guardar'});
         return;
       }
       // PI y otros arrays: solo reportar error si es admin (otros roles pueden tener permisos parciales)
