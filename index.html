@@ -200,6 +200,10 @@
   body.is-distributor #nav-share { display: flex !important; }
   #nav-pbm { display: none !important; }
   body.is-admin #nav-pbm { display: flex !important; }
+  /* LuckIA: admin y Lectura + PI (el acceso real se valida en gotoTab vía TAB_ROLES) */
+  #nav-ia { display: none !important; }
+  body.is-admin #nav-ia,
+  body.reader-pi #nav-ia { display: flex !important; }
   body.is-distributor .nav-item { display: none !important; }
   body.is-distributor #nav-semaforo,
   body.is-distributor #nav-sugeridos,
@@ -521,7 +525,7 @@
       <button class="nav-item" id="nav-pbm" onclick="gotoTab('pbm')" style="color:#C0392B">
         <i class="ti ti-trophy" style="color:#C0392B;font-size:16px"></i> Powered by MSI
       </button>
-      <button class="nav-item admin-only" id="nav-ia" onclick="gotoTab('ia')">
+      <button class="nav-item" id="nav-ia" onclick="gotoTab('ia')">
         <img src="./luckia-avatar.jpg" alt="" style="width:16px;height:16px;border-radius:50%;object-fit:cover;vertical-align:-3px;margin-right:2px" /> LuckIA
       </button>
       <button class="nav-item" onclick="window.open('./training/index.html','_blank')" title="Probá cuánto sabés de productos MSI">
@@ -1610,7 +1614,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '05.10.26.1';
+const APP_VERSION = '05.10.26.3';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -2523,9 +2527,13 @@ async function _exportAiChatTable(idx) {
 }
 
 async function _callAiWorker(messages) {
+  // El Worker exige el token de Firebase y valida el rol del lado del servidor
+  const user = _fbAuth.currentUser;
+  if(!user) throw new Error('Sesión no iniciada — recargá la página.');
+  const idToken = await user.getIdToken();
   const res = await fetch(CRM_AI_WORKER_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
       max_tokens: 4096,
@@ -2540,6 +2548,7 @@ async function _callAiWorker(messages) {
 }
 
 async function sendAiChatMessage() {
+  if(!canAccessTab('ia')) return;
   if(CRM_AI_WORKER_URL.includes('REEMPLAZAR')) {
     _alert('Falta configurar el Worker de Consultas IA — ver cloudflare-worker/crm-ai-proxy/README.md', {type:'warning', title:'Sin configurar'});
     return;
@@ -2703,7 +2712,14 @@ function parseDurationString(str) {
 const TABS = ['dashboard','pi','rebates','pricelist','salesprices','rotation','trend','rotcompare','impact','clients','resellers-t1','resellers-t2','resellers-t3','catranking','clientcompare','imports','etailers','ar','mkt','ia','notificaciones','usuarios','semaforo','sugeridos','share','pbm'];
 const TITLES = { dashboard:'Dashboard', pi:'Ordenes — Proforma Invoice', rebates:'Rebates: BER · SOR · SIR · PP', pricelist:'Lista de Precios', salesprices:'Precios de Venta', rotation:'Inventario/Ventas', trend:'Tendencia de Venta', rotcompare:'Comparador de Rotación', impact:'Impacto de Programa', clients:'Ranking de Clientes', 'resellers-t1':'Resellers T1', 'resellers-t2':'Resellers T2', 'resellers-t3':'Resellers T3', catranking:'Ranking por Categoría', clientcompare:'Comparador de Clientes', imports:'Análisis de Importaciones', etailers:'Etailers', ar:'Estado de Cuentas', mkt:'Marketing Budget', ia:'Analizar archivo con IA', notificaciones:'Notificaciones de Precios', usuarios:'Gestión de Usuarios', semaforo:'Semáforo de Stock', sugeridos:'Sugeridos de Compra', share:'Mi Participación', pbm:'Powered by MSI' };
 
+// Tabs restringidos por rol — la clase CSS solo oculta el botón, esto bloquea el acceso real
+const TAB_ROLES = { ia: ['admin','reader-pi'] };
+function canAccessTab(tab) {
+  const allowed = TAB_ROLES[tab];
+  return !allowed || allowed.includes(_currentRole);
+}
 function gotoTab(tab) {
+  if(!canAccessTab(tab)) tab = _currentRole === 'distributor' ? 'semaforo' : 'dashboard';
   currentTab = tab;
   TABS.forEach(t => {
     const el = document.getElementById('tab-'+t);
