@@ -730,6 +730,29 @@
               <option value="elit">ELIT</option>
             </select>
           </div>
+          <div class="field" style="margin-bottom:0">
+            <label>Vista</label>
+            <select id="trend-view" onchange="renderTopMovers()">
+              <option value="general">Ranking general</option>
+              <option value="bycat">Por categoría</option>
+            </select>
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label>Categoría</label>
+            <select id="trend-category" onchange="renderTopMovers()">
+              <option value="all">Todas las categorías</option>
+              <option value="motherboard">Motherboards</option>
+              <option value="monitor">Monitores</option>
+              <option value="vga">Placas de Video</option>
+              <option value="gabinete">Gabinetes</option>
+              <option value="psu">Fuentes</option>
+              <option value="minipc">Mini PC</option>
+              <option value="ssd">Almacenamiento (SSD)</option>
+              <option value="cooling">Cooling</option>
+              <option value="accesorios">Accesorios</option>
+              <option value="other">Otros / sin categorizar</option>
+            </select>
+          </div>
         </div>
         <div id="trend-chart-wrap"></div>
       </div>
@@ -1587,7 +1610,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '01.10.26.1';
+const APP_VERSION = '05.10.26.1';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -11672,20 +11695,27 @@ function computeTopMovers(distScope) {
       pct: v.prev>0 ? ((v.latest-v.prev)/v.prev*100) : null // null = producto nuevo esta semana
     };
   }).filter(r => r.delta !== 0);
-  const gainers = rows.filter(r=>r.delta>0).sort((a,b)=>b.delta-a.delta).slice(0,8);
-  const losers = rows.filter(r=>r.delta<0).sort((a,b)=>a.delta-b.delta).slice(0,8);
-  return { gainers, losers, hasEnoughData, latestDate: latestDateOverall };
+  return { rows, hasEnoughData, latestDate: latestDateOverall };
+}
+function _topMoversSplit(rows, n) {
+  return {
+    gainers: rows.filter(r=>r.delta>0).sort((a,b)=>b.delta-a.delta).slice(0,n),
+    losers: rows.filter(r=>r.delta<0).sort((a,b)=>a.delta-b.delta).slice(0,n)
+  };
 }
 function renderTopMovers() {
   const distScope = document.getElementById('trend-distributor').value;
+  const view = document.getElementById('trend-view')?.value || 'general';
+  const catFilter = document.getElementById('trend-category')?.value || 'all';
   const chartWrap = document.getElementById('trend-chart-wrap');
-  const { gainers, losers, hasEnoughData, latestDate } = computeTopMovers(distScope);
+  const { rows: allRows, hasEnoughData, latestDate } = computeTopMovers(distScope);
   if(!hasEnoughData) {
     chartWrap.innerHTML = `<div class="empty-state"><i class="ti ti-trending-up"></i><p>Todavía no hay al menos 2 semanas de ventas cargadas para este proveedor — subí otra carga semanal para ver el ranking.</p></div>`;
     return;
   }
-  if(!gainers.length && !losers.length) {
-    chartWrap.innerHTML = `<div class="empty-state"><i class="ti ti-trending-up"></i><p>Sin movimientos entre la última semana y la anterior.</p></div>`;
+  const rows = catFilter==='all' ? allRows : allRows.filter(r => r.category===catFilter);
+  if(!rows.length) {
+    chartWrap.innerHTML = `<div class="empty-state"><i class="ti ti-trending-up"></i><p>Sin movimientos entre la última semana y la anterior${catFilter!=='all'?' en esta categoría':''}.</p></div>`;
     return;
   }
   const renderList = (list, kind) => {
@@ -11706,8 +11736,47 @@ function renderTopMovers() {
       }).join('')}</tbody>
     </table></div>`;
   };
+  const infoLine = `<div style="font-size:11.5px;color:var(--text3);margin-bottom:14px"><i class="ti ti-info-circle"></i> Comparando la última carga de ventas contra la anterior, por proveedor${latestDate?` — datos más recientes al ${fmtRotDate(latestDate)}`:''}.</div>`;
+  if(view === 'bycat') {
+    // Una sección por categoría (orden de CATEGORY_KEYWORDS), top 5 subas / bajas en cada una
+    const catOrder = [...CATEGORY_KEYWORDS.map(c=>c.key), 'other'];
+    const byCat = new Map();
+    rows.forEach(r => {
+      const k = catOrder.includes(r.category) ? r.category : 'other';
+      if(!byCat.has(k)) byCat.set(k, []);
+      byCat.get(k).push(r);
+    });
+    const sections = catOrder.filter(k => byCat.has(k)).map(k => {
+      const list = byCat.get(k);
+      const { gainers, losers } = _topMoversSplit(list, 5);
+      const prevT = list.reduce((s,r)=>s+r.prev,0), latestT = list.reduce((s,r)=>s+r.latest,0);
+      const net = latestT - prevT;
+      const netColor = net>0 ? 'var(--green-text)' : net<0 ? '#E5735A' : 'var(--text3)';
+      const netPct = prevT>0 ? ` (${net>0?'+':''}${(net/prevT*100).toFixed(0)}%)` : '';
+      const color = CATEGORY_COLOR[k] || 'var(--text3)';
+      return `<div style="border:1px solid var(--border);border-left:3px solid ${color};border-radius:8px;padding:12px 14px;margin-bottom:1rem;background:var(--bg2)">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+          <div style="font-weight:600;font-size:14px;color:var(--text)"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${color};margin-right:7px"></span>${esc(CATEGORY_LABELS[k] || 'Otros / sin categorizar')}</div>
+          <div style="font-size:12px;color:var(--text3)">Neto de los modelos que se movieron: ${prevT.toLocaleString('es-AR')} → ${latestT.toLocaleString('es-AR')} <span style="color:${netColor};font-weight:600">${net>0?'+':''}${net.toLocaleString('es-AR')}${netPct}</span></div>
+        </div>
+        <div style="display:flex;gap:1.25rem;flex-wrap:wrap">
+          <div style="flex:1;min-width:300px">
+            <div class="ai-box-header" style="color:var(--green-text);font-size:12.5px"><i class="ti ti-arrow-up-right"></i> Más subieron</div>
+            ${renderList(gainers,'up')}
+          </div>
+          <div style="flex:1;min-width:300px">
+            <div class="ai-box-header" style="color:#E5735A;font-size:12.5px"><i class="ti ti-arrow-down-right"></i> Más bajaron</div>
+            ${renderList(losers,'down')}
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+    chartWrap.innerHTML = infoLine + sections;
+    return;
+  }
+  const { gainers, losers } = _topMoversSplit(rows, 8);
   chartWrap.innerHTML = `
-    <div style="font-size:11.5px;color:var(--text3);margin-bottom:14px"><i class="ti ti-info-circle"></i> Comparando la última carga de ventas contra la anterior, por proveedor${latestDate?` — datos más recientes al ${fmtRotDate(latestDate)}`:''}.</div>
+    ${infoLine}
     <div style="display:flex;gap:1.25rem;flex-wrap:wrap">
       <div style="flex:1;min-width:320px">
         <div class="ai-box-header" style="color:var(--green-text)"><i class="ti ti-arrow-up-right"></i> Más subieron</div>
