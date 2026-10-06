@@ -1615,7 +1615,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '06.10.26.1';
+const APP_VERSION = '06.10.26.2';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -11366,6 +11366,16 @@ function mondayOf(dateStr) {
   d.setDate(d.getDate() + diff);
   return d.toISOString().split('T')[0];
 }
+// Semana que "cierra" un reporte. El stock suele venir fechado el lunes (fecha de emisión),
+// pero es la foto del cierre de la semana anterior: un stock del lunes cuenta para la semana previa.
+function reportWeekMonday(dateStr, reportType) {
+  if(reportType === 'stock' && new Date(dateStr + 'T00:00:00').getDay() === 1) {
+    const d = new Date(dateStr + 'T00:00:00');
+    d.setDate(d.getDate() - 1);
+    return mondayOf(d.toISOString().split('T')[0]);
+  }
+  return mondayOf(dateStr);
+}
 function weeksBetweenMondays(startMonday, endMonday) {
   const weeks = [];
   let cursor = new Date(startMonday + 'T00:00:00');
@@ -11385,8 +11395,8 @@ function getMissingWeeksForDistributor(distKey, reportType) {
   const covered = new Set();
   let globalFirstMonday = null;
   snaps.forEach(s => {
-    const startM = mondayOf(s.periodStart || s.periodEnd);
-    const endM = mondayOf(s.periodEnd);
+    const startM = reportWeekMonday(s.periodStart || s.periodEnd, reportType);
+    const endM = reportWeekMonday(s.periodEnd, reportType);
     weeksBetweenMondays(startM, endM).forEach(w => covered.add(w));
     if(!globalFirstMonday || startM < globalFirstMonday) globalFirstMonday = startM;
   });
@@ -11441,7 +11451,7 @@ function renderRotationStatusBoard() {
       snaps.forEach(s => {
         const _mm = s.periodStart && s.periodEnd && getMonthKey(s.periodStart) !== getMonthKey(s.periodEnd);
         if(_mm) { s.rows.forEach(r => { if(r.date) _wks.add(mondayOf(r.date)); }); }
-        else { _wks.add(mondayOf(s.periodEnd)); }
+        else { _wks.add(reportWeekMonday(s.periodEnd, reportType)); }
       });
       rows.push({ distKey, reportType, latest, daysSince, status, cls, count: Math.max(snaps.length ? 1 : 0, _wks.size), missingCount: missingInfo.weeks.length });
     });
