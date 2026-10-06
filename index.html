@@ -193,7 +193,7 @@
   /* Solo admins */
   .admin-only { display: none !important; }
   body.is-admin .admin-only { display: flex !important; }
-  /* Distribuidor: solo ve semaforo, sugeridos, pi, pricelist */
+  /* Distribuidor: solo ve semaforo, sugeridos, pi, pricelist, share, trend (Top Movers de su disty) — el acceso real se valida en gotoTab vía DIST_TABS */
   /* Mi Participación: solo admin y distribuidor */
   #nav-share { display: none !important; }
   body.is-admin #nav-share,
@@ -209,7 +209,8 @@
   body.is-distributor #nav-sugeridos,
   body.is-distributor #nav-pi,
   body.is-distributor #nav-pricelist,
-  body.is-distributor #nav-share { display: flex !important; }
+  body.is-distributor #nav-share,
+  body.is-distributor #nav-trend { display: flex !important; }
   body.is-distributor .sidebar-section-label { display: none !important; }
   /* Ocultar botones de edición/borrado en modo distribuidor */
   body.is-distributor .add-col-btn { display: none !important; }
@@ -1614,7 +1615,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '05.10.26.5';
+const APP_VERSION = '06.10.26.1';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -2714,7 +2715,10 @@ const TITLES = { dashboard:'Dashboard', pi:'Ordenes — Proforma Invoice', rebat
 
 // Tabs restringidos por rol — la clase CSS solo oculta el botón, esto bloquea el acceso real
 const TAB_ROLES = { ia: ['admin','reader-pi'] };
+// Distribuidor: lista blanca — cualquier otro tab queda bloqueado aunque se llame gotoTab desde la consola
+const DIST_TABS = ['semaforo','sugeridos','pi','pricelist','share','trend'];
 function canAccessTab(tab) {
+  if(_currentRole === 'distributor' && !DIST_TABS.includes(tab)) return false;
   const allowed = TAB_ROLES[tab];
   return !allowed || allowed.includes(_currentRole);
 }
@@ -9748,17 +9752,21 @@ function upsertSnapshot(snap) {
   const snapHash = JSON.stringify(snap.rows);
   let existing = db.weeklyReports.find(s => s.distributor===snap.distributor && s.reportType===snap.reportType && s.sourceFile===snap.sourceFile && JSON.stringify(s.rows)===snapHash);
   let upgraded = false;
+  // Mismo período (inicio + fin). Varios proveedores mandan SIEMPRE el mismo nombre de archivo
+  // semana a semana: sin este chequeo, subir la semana nueva pisaba la anterior (y re-subir una
+  // semana vieja pisaba la más reciente), generando semanas faltantes falsas.
+  const samePeriod = s => (s.periodEnd||'')===(snap.periodEnd||'') && (s.periodStart||'')===(snap.periodStart||'');
   if(!existing) {
     // Si es el mismo archivo pero la carga vieja no tenía cliente/CUIT y la nueva sí,
     // es una versión mejorada del mismo reporte (no una semana distinta): se actualiza.
     const hasClientData = s => s.rows.some(r => r.client || r.cuit);
-    const olderVersion = db.weeklyReports.find(s => s.distributor===snap.distributor && s.reportType===snap.reportType && s.sourceFile===snap.sourceFile && !hasClientData(s));
+    const olderVersion = db.weeklyReports.find(s => s.distributor===snap.distributor && s.reportType===snap.reportType && s.sourceFile===snap.sourceFile && samePeriod(s) && !hasClientData(s));
     if(olderVersion && hasClientData(snap)) { existing = olderVersion; upgraded = true; }
   }
   if(!existing) {
-    // Si es el mismo archivo (mismo nombre + distribuidor + tipo) con rows distintas
+    // Si es el mismo archivo (mismo nombre + distribuidor + tipo + período) con rows distintas
     // (ej: re-subido luego de un fix de parsing), reemplazar la carga anterior.
-    existing = db.weeklyReports.find(s => s.distributor===snap.distributor && s.reportType===snap.reportType && s.sourceFile===snap.sourceFile);
+    existing = db.weeklyReports.find(s => s.distributor===snap.distributor && s.reportType===snap.reportType && s.sourceFile===snap.sourceFile && samePeriod(s));
     if(existing) upgraded = true;
   }
   if(existing) db.weeklyReports = db.weeklyReports.filter(s => s.id !== existing.id);
@@ -11720,7 +11728,15 @@ function _topMoversSplit(rows, n) {
   };
 }
 function renderTopMovers() {
-  const distScope = document.getElementById('trend-distributor').value;
+  // Distribuidor: fijo a su propio disty, sin poder cambiarlo
+  const distSel = document.getElementById('trend-distributor');
+  if(_currentRole === 'distributor') {
+    if(_currentDistributor) distSel.value = _currentDistributor;
+    distSel.disabled = true;
+  } else {
+    distSel.disabled = false;
+  }
+  const distScope = _currentRole === 'distributor' ? (_currentDistributor || '__none__') : distSel.value;
   const view = document.getElementById('trend-view')?.value || 'general';
   const catFilter = document.getElementById('trend-category')?.value || 'all';
   const chartWrap = document.getElementById('trend-chart-wrap');
