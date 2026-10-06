@@ -210,7 +210,8 @@
   body.is-distributor #nav-pi,
   body.is-distributor #nav-pricelist,
   body.is-distributor #nav-share,
-  body.is-distributor #nav-trend { display: flex !important; }
+  body.is-distributor #nav-trend,
+  body.is-distributor #nav-psucalc { display: flex !important; }
   body.is-distributor .sidebar-section-label { display: none !important; }
   /* Ocultar botones de edición/borrado en modo distribuidor */
   body.is-distributor .add-col-btn { display: none !important; }
@@ -519,6 +520,9 @@
       </button>
       <button class="nav-item" id="nav-sugeridos" onclick="gotoTab('sugeridos')" style="color:#A3BE8C">
         <i class="ti ti-shopping-cart" style="color:#A3BE8C;font-size:16px"></i> Sugeridos
+      </button>
+      <button class="nav-item" id="nav-psucalc" onclick="gotoTab('psucalc')">
+        <i class="ti ti-bolt" style="color:#EBCB8B;font-size:16px"></i> Calculadora PSU
       </button>
       <button class="nav-item" id="nav-share" onclick="gotoTab('share')" style="color:#B48EAD">
         <i class="ti ti-chart-pie" style="color:#B48EAD;font-size:16px"></i> Mi Participación
@@ -1270,6 +1274,11 @@
         <div id="pbm-content"></div>
       </div>
 
+      <!-- CALCULADORA DE FUENTE -->
+      <div id="tab-psucalc" class="tab-pane">
+        <div id="psucalc-content"></div>
+      </div>
+
     </main>
   </div>
 </div>
@@ -1615,7 +1624,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '06.10.26.3';
+const APP_VERSION = '06.10.26.4';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -2710,13 +2719,13 @@ function parseDurationString(str) {
 }
 
 // ─── TAB NAV ──────────────────────────────────────────
-const TABS = ['dashboard','pi','rebates','pricelist','salesprices','rotation','trend','rotcompare','impact','clients','resellers-t1','resellers-t2','resellers-t3','catranking','clientcompare','imports','etailers','ar','mkt','ia','notificaciones','usuarios','semaforo','sugeridos','share','pbm'];
-const TITLES = { dashboard:'Dashboard', pi:'Ordenes — Proforma Invoice', rebates:'Rebates: BER · SOR · SIR · PP', pricelist:'Lista de Precios', salesprices:'Precios de Venta', rotation:'Inventario/Ventas', trend:'Tendencia de Venta', rotcompare:'Comparador de Rotación', impact:'Impacto de Programa', clients:'Ranking de Clientes', 'resellers-t1':'Resellers T1', 'resellers-t2':'Resellers T2', 'resellers-t3':'Resellers T3', catranking:'Ranking por Categoría', clientcompare:'Comparador de Clientes', imports:'Análisis de Importaciones', etailers:'Etailers', ar:'Estado de Cuentas', mkt:'Marketing Budget', ia:'Analizar archivo con IA', notificaciones:'Notificaciones de Precios', usuarios:'Gestión de Usuarios', semaforo:'Semáforo de Stock', sugeridos:'Sugeridos de Compra', share:'Mi Participación', pbm:'Powered by MSI' };
+const TABS = ['dashboard','pi','rebates','pricelist','salesprices','rotation','trend','rotcompare','impact','clients','resellers-t1','resellers-t2','resellers-t3','catranking','clientcompare','imports','etailers','ar','mkt','ia','notificaciones','usuarios','semaforo','sugeridos','share','pbm','psucalc'];
+const TITLES = { dashboard:'Dashboard', pi:'Ordenes — Proforma Invoice', rebates:'Rebates: BER · SOR · SIR · PP', pricelist:'Lista de Precios', salesprices:'Precios de Venta', rotation:'Inventario/Ventas', trend:'Tendencia de Venta', rotcompare:'Comparador de Rotación', impact:'Impacto de Programa', clients:'Ranking de Clientes', 'resellers-t1':'Resellers T1', 'resellers-t2':'Resellers T2', 'resellers-t3':'Resellers T3', catranking:'Ranking por Categoría', clientcompare:'Comparador de Clientes', imports:'Análisis de Importaciones', etailers:'Etailers', ar:'Estado de Cuentas', mkt:'Marketing Budget', ia:'Analizar archivo con IA', notificaciones:'Notificaciones de Precios', usuarios:'Gestión de Usuarios', semaforo:'Semáforo de Stock', sugeridos:'Sugeridos de Compra', share:'Mi Participación', pbm:'Powered by MSI', psucalc:'Calculadora de Fuente' };
 
 // Tabs restringidos por rol — la clase CSS solo oculta el botón, esto bloquea el acceso real
 const TAB_ROLES = { ia: ['admin','reader-pi'] };
 // Distribuidor: lista blanca — cualquier otro tab queda bloqueado aunque se llame gotoTab desde la consola
-const DIST_TABS = ['semaforo','sugeridos','pi','pricelist','share','trend'];
+const DIST_TABS = ['semaforo','sugeridos','pi','pricelist','share','trend','psucalc'];
 function canAccessTab(tab) {
   if(_currentRole === 'distributor' && !DIST_TABS.includes(tab)) return false;
   const allowed = TAB_ROLES[tab];
@@ -2762,6 +2771,7 @@ function gotoTab(tab) {
   if(tab==='sugeridos') renderSugeridosTab();
   if(tab==='share') renderShareTab();
   if(tab==='pbm') renderPBMTab();
+  if(tab==='psucalc') renderPsuCalcTab();
 }
 
 function openNewModal() {
@@ -9855,6 +9865,196 @@ async function handleRotationFiles(fileList) {
     summary = 'Importado correctamente:\n' + allSnapshots.map(s => `• ${DISTRIBUTORS[s.distributor]} — ${s.reportType==='sales'?'Ventas':'Stock'} (${s.rows.length} SKUs, ${fmtRotDate(s.periodStart)}${s.periodStart!==s.periodEnd?' al '+fmtRotDate(s.periodEnd):''}${s.periodGuessed?' — fecha asumida':''})`).join('\n');
   }
   _alert(summary + unrecognizedNote + guessedWarning + upgradeNote + failedNote, {type:'success', title:'Archivos importados'});
+}
+// ─── CALCULADORA DE FUENTES (PSU) ─────────────────────────
+// Base de consumos relevada de la calculadora oficial de MSI (msi.com/power-supply-calculator,
+// API /api/powerCalculator/list, 06/10/2026). Cada valor ya es el requerimiento de fuente que MSI
+// recomienda para ese componente: el total es la suma simple de watts × cantidad (igual que la web).
+const PSU_CALC_DATA = {
+  CPU: [
+    ['Intel', [
+      ['LGA1851', [['Core Ultra 9 285K (Auto Boost)',270],['Core Ultra 9 285K',237],['Core Ultra 7 265K (Auto Boost)',196],['Core Ultra 7 265K',188],['Core Ultra 5 245K (Auto Boost)',134],['Core Ultra 5 245K',118]]],
+      ['LGA1700', [['i9-14900KS',398],['i9-14900K',365],['i9-14900KF',365],['i9-14900',436],['i9-14900F',436],['i7-14700K',320],['i7-14700KF',320],['i7-14700',328],['i7-14700F',328],['i5-14600K',205],['i5-14600KF',205],['i5-14600',170],['i5-14500',152],['i5-14400',91],['i5-14400F',91],['i3-14100',78],['i3-14100F',78],['i9-13900KS',316],['i9-13900K',316],['i9-13900KF',316],['i9-13900',275],['i9-13900F',275],['i7-13790F',275],['i7-13700K',317],['i7-13700KF',317],['i7-13700',275],['i7-13700F',275],['i5-13600K',227],['i5-13600KF',227],['i5-13600',193],['i5-13500',193],['i5-13490F',186],['i5-13400',193],['i5-13400F',193],['i3-13100',112],['i3-13100F',112],['i9-12900KS',302],['i9-12900K',302],['i9-12900KF',302],['i9-12900',254],['i9-12900F',254],['i7-12700K',239],['i7-12700KF',239],['i7-12700',226],['i7-12700F',226],['i5-12600K',188],['i5-12600KF',188],['i5-12600',147],['i5-12500',147],['i5-12490F',147],['i5-12400',147],['i5-12400F',147],['i3-12300',112],['i3-12100',112],['i3-12100F',112]]],
+      ['LGA1200', [['i9-11900K',314],['i9-11900KF',314],['i9-11900',164],['i9-11900F',164],['i7-11700K',314],['i7-11700KF',314],['i7-11700',164],['i7-11700F',164],['i5-11600K',314],['i5-11600KF',314],['i5-11600',164],['i5-11500',164],['i5-11400',164],['i5-11400F',164]]]
+    ]],
+    ['AMD', [
+      ['AM5', [['R9 9950X3D (PBO)',257],['R9 9950X3D',200],['R9 9900X3D (PBO)',210],['R9 9900X3D',162],['R7 9800X3D',155],['R9 9950X (PBO)',283],['R9 9950X',200],['R9 9900X (PBO)',233],['R9 9900X',159],['R7 9700X (PBO)',150],['R7 9700X',88],['R5 9600X (PBO)',118],['R5 9600X',88],['R7 8700G',99],['R5 8600G',77],['R5 8500G',49],['R3 8300G',29],['R9 7950X3D',204],['R9 7950X',289],['R9 7900X3D',204],['R9 7900X',289],['R9 7900',111],['R7 7800X3D',204],['R7 7700X',179],['R7 7700',111],['R5 7600X',179],['R5 7600',111]]],
+      ['AM4', [['R9 5950X',168],['R9 5900X',168],['R7 5800X3D',168],['R7 5800X',168],['R7 5700X',104],['R5 5600X',104],['R7 5700G',104],['R5 5600',104],['R5 5600G',104],['R5 5500',104],['R3 5300G',104],['R9 3950X',137],['R9 3900XT',137],['R9 3900X',137],['R9 3900',85],['R7 3800XT',137],['R7 3800X',137],['R7 3700X',85],['R7 3700',85]]]
+    ]]
+  ],
+  GPU: [
+    ['NVIDIA', [['RTX 5090',780],['RTX 5080',587],['RTX 5070 Ti',500],['RTX 5070',415],['RTX 5060 Ti',315],['RTX 5060',285],['RTX 5050',251],['RTX 4090',630],['RTX 4080 SUPER',504],['RTX 4080',504],['RTX 4070 Ti SUPER',467],['RTX 4070 Ti',467],['RTX 4070 SUPER',378],['RTX 4070',378],['RTX 4060 Ti',303],['RTX 4060',205],['RTX 3090 Ti',694],['RTX 3090',580],['RTX 3080 Ti',568],['RTX 3080',543],['RTX 3070 Ti',479],['RTX 3070',442],['RTX 3060 Ti',417],['RTX 3060',316],['RTX 3050',252],['RTX 2080 Ti',392],['RTX 2080 Super',372],['RTX 2080',328],['RTX 2070 Super',316],['RTX 2070',266],['RTX 2060 Super',266],['RTX 2060 6GB',246],['GTX 1660 Ti',188],['GTX 1660 Super',184],['GTX 1660',184],['GTX 1650 Super',142],['GTX 1080 Ti',321],['GTX 1080',249],['GTX 1070 Ti',249],['GTX 1070',218],['GTX 1060 6GB',188],['GTX 1060 3GB',188],['GTX 1050 Ti',142],['GTX 1050',139]]],
+    ['AMD', [['RX 9070 XT',512],['RX 9070',341],['RX 9060 XT',301],['RX 9060',200],['RX 7900 XTX',569],['RX 7900 XT',518],['RX 7800 XT',415],['RX 7700 XT',341],['RX 7600',312],['RX 6950 XT',656],['RX 6900 XT',530],['RX 6800 XT',504],['RX 6800',442],['RX 6750 XT',555],['RX 6700 XT',417],['RX 6650 XT',417],['RX 6600 XT',316],['RX 6600',291],['RX 6500 XT',252],['RX 6400',108],['RX 5700 XT',285],['RX 5700',227],['RX 5600 XT',202],['RX 5600',202],['RX 5500 XT',165]]]
+  ],
+  RAM:     [['DDR4',10],['DDR5',15]],
+  PCIE:    [['PCI-e x1',12],['PCI-e x4',20],['PCI-e x8',30],['PCI-e x16',65]],
+  STORAGE: [['HDD',20],['SSD SATA',3],['SSD M.2',10]],
+  DRIVE:   [['CD-ROM / CD-RW',20],['DVD-ROM / DVD-RW',25],['Combo DVD / CD-RW',30],['Blu-Ray',25]],
+  FAN: 6,
+  PD: 75
+};
+let _psuCalc = null;
+function _psuCalcReset() {
+  _psuCalc = { cpuBrand:'', cpuSocket:'', cpuModel:'', gpus:[{brand:'',model:'',qty:1}], rams:[{type:'',qty:2}], pcie:[], storage:[{type:'',qty:1}], drive:'', fans:0, pd:false };
+}
+function _psuPick(list, name) { const f = (list||[]).find(x => x[0]===name); return f ? f[1] : null; }
+function _psuCalcItems() {
+  const s = _psuCalc, items = [];
+  const cpuW = _psuPick(_psuPick(_psuPick(PSU_CALC_DATA.CPU, s.cpuBrand), s.cpuSocket), s.cpuModel);
+  if(cpuW) items.push({ label:'CPU · '+s.cpuModel, w:cpuW });
+  s.gpus.forEach(g => { const w = _psuPick(_psuPick(PSU_CALC_DATA.GPU, g.brand), g.model); if(w) items.push({ label:`GPU · ${g.model}${g.qty>1?' ×'+g.qty:''}`, w:w*g.qty }); });
+  s.rams.forEach(r => { const w = _psuPick(PSU_CALC_DATA.RAM, r.type); if(w) items.push({ label:`RAM · ${r.type} ×${r.qty}`, w:w*r.qty }); });
+  s.pcie.forEach(p => { const w = _psuPick(PSU_CALC_DATA.PCIE, p.type); if(w) items.push({ label:`${p.type}${p.qty>1?' ×'+p.qty:''}`, w:w*p.qty }); });
+  s.storage.forEach(d => { const w = _psuPick(PSU_CALC_DATA.STORAGE, d.type); if(w) items.push({ label:`${d.type} ×${d.qty}`, w:w*d.qty }); });
+  const dw = _psuPick(PSU_CALC_DATA.DRIVE, s.drive); if(dw) items.push({ label:'Óptica · '+s.drive, w:dw });
+  if(s.fans > 0) items.push({ label:`Coolers ×${s.fans}`, w:PSU_CALC_DATA.FAN*s.fans });
+  if(s.pd) items.push({ label:'Carga USB PD', w:PSU_CALC_DATA.PD });
+  return items;
+}
+// Watts de una fuente de la lista de precios a partir del modelo (MAG A650BN, MPG Ai1300TS, PRO A850PL...)
+function _psuWattOf(p) {
+  if(!p || p.isSubSection) return null;
+  const txt = `${p.desc||''} ${p.code||''}`;
+  // Motherboards AMD (A520M, PRO A620AM-G...) comparten el patrón "A + número": se excluyen por el sufijo M/AM
+  const re = /\bAI?(\d{3,4})(?!A?M(?:\b|-))[A-Z]/i;
+  const isPsu = /PSU|FUENTE|POWER SUPPLY/i.test(String(p.category||'')) || /\b(MAG|MPG|MEG|PRO)\s+/i.test(txt) && re.test(txt);
+  if(!isPsu) return null;
+  const m = txt.match(re);
+  const w = m ? parseInt(m[1]) : null;
+  return (w && w >= 300 && w <= 2000 && w % 50 === 0) ? w : null;
+}
+function _psuSelect(options, selected, placeholder, onchange, disabled) {
+  return `<select class="psu-sel" onchange="${onchange}"${disabled?' disabled':''}><option value="">${placeholder}</option>${options.map(o => {
+    const [val, label] = Array.isArray(o) ? o : [o, o];
+    return `<option value="${esc(val)}"${val===selected?' selected':''}>${esc(label)}</option>`;
+  }).join('')}</select>`;
+}
+function _psuQty(n, max, onchange) {
+  return `<select class="psu-sel psu-qty" onchange="${onchange}">${Array.from({length:max},(_,i)=>i+1).map(q=>`<option value="${q}"${q===n?' selected':''}>×${q}</option>`).join('')}</select>`;
+}
+function _psuRowBtn(icon, onclick, title) {
+  return `<button class="psu-icon-btn" onclick="${onclick}" title="${title}"><i class="ti ti-${icon}"></i></button>`;
+}
+function renderPsuCalcTab() {
+  const el = document.getElementById('psucalc-content');
+  if(!el) return;
+  if(!_psuCalc) _psuCalcReset();
+  const s = _psuCalc, D = PSU_CALC_DATA;
+  const R = 'renderPsuCalcTab()';
+  const wl = list => list.map(x => [x[0], `${x[0]} (${x[1]} W)`]);
+
+  const sockets = _psuPick(D.CPU, s.cpuBrand) || [];
+  const cpuModels = _psuPick(sockets, s.cpuSocket) || [];
+  const cpuHtml = `<div class="psu-row">
+    ${_psuSelect(D.CPU.map(x=>x[0]), s.cpuBrand, 'Marca', `_psuCalc.cpuBrand=this.value;_psuCalc.cpuSocket='';_psuCalc.cpuModel='';${R}`)}
+    ${_psuSelect(sockets.map(x=>x[0]), s.cpuSocket, 'Socket', `_psuCalc.cpuSocket=this.value;_psuCalc.cpuModel='';${R}`, !s.cpuBrand)}
+    ${_psuSelect(wl(cpuModels), s.cpuModel, 'Modelo', `_psuCalc.cpuModel=this.value;${R}`, !s.cpuSocket)}
+  </div>`;
+
+  const gpuHtml = s.gpus.map((g, i) => `<div class="psu-row">
+    ${_psuSelect(D.GPU.map(x=>x[0]), g.brand, 'Marca', `_psuCalc.gpus[${i}].brand=this.value;_psuCalc.gpus[${i}].model='';${R}`)}
+    ${_psuSelect(wl(_psuPick(D.GPU, g.brand)||[]), g.model, 'Modelo', `_psuCalc.gpus[${i}].model=this.value;${R}`, !g.brand)}
+    ${_psuQty(g.qty, 2, `_psuCalc.gpus[${i}].qty=+this.value;${R}`)}
+    ${s.gpus.length > 1 ? _psuRowBtn('x', `_psuCalc.gpus.splice(${i},1);${R}`, 'Quitar') : '<span class="psu-icon-sp"></span>'}
+  </div>`).join('') + (s.gpus.length < 2 ? `<button class="psu-add" onclick="_psuCalc.gpus.push({brand:'',model:'',qty:1});${R}"><i class="ti ti-plus"></i> Agregar GPU</button>` : '');
+
+  const simpleRows = (key, list, maxQty, maxRows, addLabel, defQty) => s[key].map((r, i) => `<div class="psu-row">
+    ${_psuSelect(wl(list), r.type, 'Tipo', `_psuCalc.${key}[${i}].type=this.value;${R}`)}
+    ${_psuQty(r.qty, maxQty, `_psuCalc.${key}[${i}].qty=+this.value;${R}`)}
+    ${_psuRowBtn('x', `_psuCalc.${key}.splice(${i},1);${R}`, 'Quitar')}
+  </div>`).join('') + (s[key].length < maxRows ? `<button class="psu-add" onclick="_psuCalc.${key}.push({type:'',qty:${defQty}});${R}"><i class="ti ti-plus"></i> ${addLabel}</button>` : '');
+
+  const otherHtml = `<div class="psu-row">
+    <span class="psu-inline-lbl">Coolers (${D.FAN} W c/u)</span>
+    <select class="psu-sel psu-qty" onchange="_psuCalc.fans=+this.value;${R}">${Array.from({length:16},(_,i)=>i).map(q=>`<option value="${q}"${q===s.fans?' selected':''}>${q}</option>`).join('')}</select>
+  </div>
+  <label class="psu-check"><input type="checkbox"${s.pd?' checked':''} onchange="_psuCalc.pd=this.checked;${R}"> Carga USB Power Delivery (+${D.PD} W)</label>`;
+
+  const section = (icon, title, body) => `<div class="psu-group"><div class="psu-group-title"><i class="ti ti-${icon}"></i> ${title}</div>${body}</div>`;
+
+  // Resultado
+  const items = _psuCalcItems();
+  const total = items.reduce((a, it) => a + it.w, 0);
+  const allPsus = (priceList.products||[]).map(p => ({ p, w:_psuWattOf(p) })).filter(x => x.w);
+  const fits = allPsus.filter(x => x.w >= total).sort((a,b) => a.w - b.w || (a.p.price ?? 1e9) - (b.p.price ?? 1e9));
+  const tiers = [...new Set(fits.map(x => x.w))].slice(0, 3);
+  const shown = fits.filter(x => tiers.includes(x.w));
+  const money = v => v != null ? 'USD ' + Number(v).toLocaleString('es-AR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '-';
+  const stockOf = p => { const t = (p.miamiStock||0) + (p.bondedStock||0); return t > 0 ? t.toLocaleString('es-AR') : (p.bondedEta || p.miamiEta || '-'); };
+
+  let psuHtml;
+  if(total === 0) psuHtml = `<div class="psu-empty">Elegí los componentes para ver las fuentes MSI recomendadas.</div>`;
+  else if(allPsus.length === 0) psuHtml = `<div class="psu-empty">No hay fuentes en la Lista de Precios cargada.</div>`;
+  else if(shown.length === 0) psuHtml = `<div class="psu-empty">Ninguna fuente de la lista llega a ${total} W.</div>`;
+  else psuHtml = `<div class="table-scroll"><table class="data-table psu-table">
+      <thead><tr><th>Fuente</th><th>Watts</th><th>Precio</th><th>Stock</th><th>Ctn / Plt</th></tr></thead>
+      <tbody>${shown.map(x => `<tr${x.w===tiers[0]?' class="psu-best"':''}>
+        <td><div style="font-weight:600">${esc(x.p.desc||x.p.code)}</div><div style="font-size:11px;color:var(--text3)">${esc(x.p.code)}${x.w===tiers[0]?' · <span style="color:var(--green-text);font-weight:600">Recomendada</span>':''}</div></td>
+        <td style="text-align:center;font-weight:600">${x.w} W</td>
+        <td style="text-align:right;white-space:nowrap">${money(x.p.price)}</td>
+        <td style="text-align:center;font-size:12px">${esc(String(stockOf(x.p)))}</td>
+        <td style="text-align:center;font-size:12px;color:var(--text3)">${x.p.qtyCtn||'-'} / ${x.p.qtyPlt||'-'}</td>
+      </tr>`).join('')}</tbody></table></div>`;
+
+  const maxW = Math.max(1, ...items.map(it => it.w));
+  el.innerHTML = `
+  <style>
+    .psu-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.15fr); gap:16px; align-items:start; }
+    @media (max-width: 980px) { .psu-grid { grid-template-columns:minmax(0,1fr); } }
+    .psu-card { background:var(--bg2); border:0.5px solid var(--border); border-radius:12px; padding:16px; }
+    .psu-group { padding:12px 0; border-bottom:0.5px solid var(--border); }
+    .psu-group:last-child { border-bottom:none; }
+    .psu-group-title { font-size:12px; font-weight:700; color:var(--text2); letter-spacing:0.04em; text-transform:uppercase; margin-bottom:8px; display:flex; align-items:center; gap:6px; }
+    .psu-group-title i { color:var(--brand); font-size:15px; }
+    .psu-row { display:flex; gap:6px; align-items:center; margin-bottom:6px; }
+    .psu-sel { flex:1; min-width:0; padding:7px 8px; border:0.5px solid var(--border2); border-radius:8px; background:var(--bg); color:var(--text); font-size:13px; }
+    .psu-sel:disabled { opacity:.45; }
+    .psu-qty { flex:0 0 64px; }
+    .psu-icon-btn { flex:0 0 28px; height:28px; border:0.5px solid var(--border2); border-radius:8px; background:transparent; color:var(--text3); cursor:pointer; }
+    .psu-icon-btn:hover { color:var(--red-text); border-color:var(--red-text); }
+    .psu-icon-sp { flex:0 0 28px; }
+    .psu-add { border:0.5px dashed var(--border2); background:transparent; color:var(--text2); border-radius:8px; padding:5px 10px; font-size:12px; cursor:pointer; }
+    .psu-add:hover { border-color:var(--brand); color:var(--brand-text); }
+    .psu-inline-lbl { flex:1; font-size:13px; color:var(--text2); }
+    .psu-check { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text2); cursor:pointer; }
+    .psu-total { font-size:44px; font-weight:800; color:var(--brand-text); line-height:1; }
+    .psu-bar-row { display:grid; grid-template-columns:minmax(0,1fr) 120px 56px; gap:8px; align-items:center; font-size:12px; margin-top:6px; }
+    .psu-bar { height:6px; background:var(--bg3); border-radius:3px; overflow:hidden; }
+    .psu-bar > div { height:100%; background:var(--brand); border-radius:3px; }
+    .psu-table td, .psu-table th { vertical-align:middle; }
+    .psu-best td { background:rgba(163,190,140,0.10); }
+    .psu-empty { padding:28px 8px; text-align:center; color:var(--text3); font-size:13px; }
+  </style>
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+    <div>
+      <h2 style="margin:0;font-size:18px;font-weight:700">Calculadora de Fuente</h2>
+      <span style="font-size:12px;color:var(--text3)">Armá la PC y te sugiere la fuente MSI de la lista de precios. Consumos según la calculadora oficial de MSI.</span>
+    </div>
+    <button class="btn" onclick="_psuCalcReset();${R}"><i class="ti ti-refresh"></i> Limpiar</button>
+  </div>
+  <div class="psu-grid">
+    <div class="psu-card">
+      ${section('cpu', 'Procesador', cpuHtml)}
+      ${section('device-desktop-analytics', 'Placa de video', gpuHtml)}
+      ${section('cpu-2', 'Memoria RAM', simpleRows('rams', D.RAM, 8, 4, 'Agregar RAM', 2))}
+      ${section('database', 'Almacenamiento', simpleRows('storage', D.STORAGE, 6, 6, 'Agregar disco', 1))}
+      ${section('plug-connected', 'Placas PCI Express adicionales', simpleRows('pcie', D.PCIE, 6, 4, 'Agregar placa', 1))}
+      ${section('disc', 'Unidad óptica', `<div class="psu-row">${_psuSelect(wl(D.DRIVE), s.drive, 'Ninguna', `_psuCalc.drive=this.value;${R}`)}</div>`)}
+      ${section('propeller', 'Otros', otherHtml)}
+    </div>
+    <div style="display:flex;flex-direction:column;gap:16px">
+      <div class="psu-card">
+        <div style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:0.04em;text-transform:uppercase;margin-bottom:8px">Fuente recomendada</div>
+        <div style="display:flex;align-items:baseline;gap:8px"><span class="psu-total">${total}</span><span style="font-size:18px;font-weight:700;color:var(--text2)">W</span></div>
+        ${items.length ? `<div style="margin-top:12px">${items.map(it => `<div class="psu-bar-row"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text2)">${esc(it.label)}</span><div class="psu-bar"><div style="width:${Math.round(it.w/maxW*100)}%"></div></div><span style="text-align:right;font-weight:600">${it.w} W</span></div>`).join('')}</div>` : ''}
+        <div style="font-size:11px;color:var(--text3);margin-top:12px">Valores de referencia. MSI aclara que estimar el sistema completo a partir de un solo componente no es exacto.</div>
+      </div>
+      <div class="psu-card">
+        <div style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:0.04em;text-transform:uppercase;margin-bottom:8px">Fuentes MSI que cubren ${total ? total+' W' : 'el consumo'}</div>
+        ${psuHtml}
+      </div>
+    </div>
+  </div>`;
 }
 // ─── MARKETING BUDGET ─────────────────────────────────────
 const MKT_SLICE_COLORS = [
