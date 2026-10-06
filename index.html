@@ -1615,7 +1615,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '06.10.26.2';
+const APP_VERSION = '06.10.26.3';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -11469,10 +11469,16 @@ function renderRotationStatusBoard() {
   </table>`;
 }
 function renderRotationTab() {
-  // Self-heal: remove any snaps with a non-string periodEnd (e.g. serialized Promise → {})
-  const badSnaps = db.weeklyReports.filter(s => s.periodEnd && typeof s.periodEnd !== 'string');
+  // Self-heal: cargas con fecha no-string (ej. Promise serializado → {}). No se borran: se les
+  // pone la fecha de subida como "asumida" para que se corrijan con el lápiz sin perder datos.
+  const badSnaps = db.weeklyReports.filter(s => (s.periodEnd && typeof s.periodEnd !== 'string') || (s.periodStart && typeof s.periodStart !== 'string'));
   if(badSnaps.length) {
-    db.weeklyReports = db.weeklyReports.filter(s => !s.periodEnd || typeof s.periodEnd === 'string');
+    badSnaps.forEach(s => {
+      const fallback = String(s.uploadedAt || new Date().toISOString()).split('T')[0];
+      if(typeof s.periodEnd !== 'string') s.periodEnd = fallback;
+      if(typeof s.periodStart !== 'string') s.periodStart = s.periodEnd;
+      s.periodGuessed = true;
+    });
     saveDB();
   }
   renderRotationStatusBoard();
@@ -11661,10 +11667,10 @@ async function deleteSelectedRotationSnapshots() {
   renderRotationTab();
   renderRotationHistory();
 }
-function editSnapshotPeriod(id) {
+async function editSnapshotPeriod(id) {
   const snap = db.weeklyReports.find(s => s.id === id);
   if(!snap) return;
-  const chosen = promptForDate(`Fecha para esta carga de ${DISTRIBUTORS[snap.distributor]} (${snap.reportType==='sales'?'Ventas':'Stock'}, archivo: ${snap.sourceFile}):\n(formato DD/MM/AAAA — para ventas se usa como fecha de cierre de esa semana)`, snap.periodEnd);
+  const chosen = await promptForDate(`Fecha para esta carga de ${DISTRIBUTORS[snap.distributor]} (${snap.reportType==='sales'?'Ventas':'Stock'}, archivo: ${snap.sourceFile}):\n(formato DD/MM/AAAA — para ventas se usa como fecha de cierre de esa semana)`, snap.periodEnd);
   if(!chosen) return;
   snap.periodEnd = chosen;
   if(snap.reportType === 'stock') snap.periodStart = chosen;
