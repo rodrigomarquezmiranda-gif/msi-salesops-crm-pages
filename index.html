@@ -190,6 +190,15 @@
   body.readonly [onclick="document.getElementById('pf-file-input').click()"],
   body.readonly [onclick="document.getElementById('pf-signed-input').click()"],
   body.readonly [onclick="document.getElementById('pf-invoice-input').click()"] { display: none !important; }
+  /* Solo lectura: sin acceso a info de clientes/canal (el acceso real se valida en gotoTab vía READONLY_BLOCKED_TABS) */
+  body.readonly #nav-rotcompare,
+  body.readonly #nav-clients,
+  body.readonly #nav-resellers-t1,
+  body.readonly #nav-resellers-t2,
+  body.readonly #nav-resellers-t3,
+  body.readonly #nav-catranking,
+  body.readonly #nav-clientcompare,
+  body.readonly #nav-etailers { display: none !important; }
   /* Solo admins */
   .admin-only { display: none !important; }
   body.is-admin .admin-only { display: flex !important; }
@@ -1252,6 +1261,13 @@
             </div>
             <div id="allowed-users-list" style="margin-top:0.75rem"></div>
           </div>
+          <div class="alert-section">
+            <div class="section-header">
+              <div class="section-title"><i class="ti ti-history" style="font-size:15px;vertical-align:-2px;margin-right:5px"></i>Historial de accesos</div>
+              <select id="access-log-user" onchange="renderAccessLog()" style="font-size:12px;padding:5px 8px;border-radius:6px;border:0.5px solid var(--border2);background:var(--bg2);color:var(--text);cursor:pointer"></select>
+            </div>
+            <div id="access-log-list" style="margin-top:0.75rem"></div>
+          </div>
         </div>
       </div>
 
@@ -1624,7 +1640,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '07.10.26.2';
+const APP_VERSION = '07.10.26.3';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -2726,8 +2742,11 @@ const TITLES = { dashboard:'Dashboard', pi:'Ordenes — Proforma Invoice', rebat
 const TAB_ROLES = { ia: ['admin','reader-pi'] };
 // Distribuidor: lista blanca — cualquier otro tab queda bloqueado aunque se llame gotoTab desde la consola
 const DIST_TABS = ['semaforo','sugeridos','pi','pricelist','share','trend','psucalc'];
+// Solo lectura: lista negra — tabs con info de clientes/canal que no deben ver
+const READONLY_BLOCKED_TABS = ['rotcompare','clients','resellers-t1','resellers-t2','resellers-t3','catranking','clientcompare','etailers'];
 function canAccessTab(tab) {
   if(_currentRole === 'distributor' && !DIST_TABS.includes(tab)) return false;
+  if(_currentRole === 'readonly' && READONLY_BLOCKED_TABS.includes(tab)) return false;
   const allowed = TAB_ROLES[tab];
   return !allowed || allowed.includes(_currentRole);
 }
@@ -16718,6 +16737,16 @@ async function _getUserRole(user) {
   return entry ? entry.role : null;
 }
 
+const ACCESS_LOG_MAX = 100;
+function _accessDeviceLabel() {
+  const ua = navigator.userAgent || '';
+  const os = /iPhone|iPad|iPod/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows'
+           : /Mac OS X|Macintosh/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : 'Otro';
+  const br = /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Firefox\//.test(ua) ? 'Firefox'
+           : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Otro';
+  return `${os} · ${br}`;
+}
+
 async function _recordLogin(user) {
   const key = _eKey(user.email);
   if (user.uid === OWNER_UID && !_allowedUsers[key]) {
@@ -16727,10 +16756,26 @@ async function _recordLogin(user) {
     await firebase.database().ref(`salesops_allowed_users/${key}`).set(entry);
     _allowedUsers[key] = entry;
   } else if (_allowedUsers[key]) {
-    const upd = { uid: user.uid, lastLogin: new Date().toISOString() };
+    const now = new Date().toISOString();
+    const upd = { uid: user.uid, lastLogin: now };
     if (user.displayName && !_allowedUsers[key].name) upd.name = user.displayName;
+    // Historial de accesos: un registro por ingreso (las recargas dentro de 15 min no cuentan)
+    const log = { ...(_allowedUsers[key].accessLog || {}) };
+    const logKeys = Object.keys(log).sort((a, b) => String(log[a].at).localeCompare(String(log[b].at)));
+    const lastAt = logKeys.length ? new Date(log[logKeys[logKeys.length - 1]].at).getTime() : 0;
+    if (Date.now() - lastAt > 15 * 60 * 1000) {
+      const entry = { at: now, device: _accessDeviceLabel() };
+      const newKey = firebase.database().ref().push().key;
+      const logUpd = { [newKey]: entry };
+      log[newKey] = entry;
+      // Conservar los últimos ACCESS_LOG_MAX por usuario
+      logKeys.slice(0, Math.max(0, logKeys.length + 1 - ACCESS_LOG_MAX)).forEach(k => { logUpd[k] = null; delete log[k]; });
+      // Aparte del update principal: si falla el log, el lastLogin igual se guarda
+      firebase.database().ref(`salesops_allowed_users/${key}/accessLog`).update(logUpd)
+        .catch(e => console.warn('[accessLog] no se pudo registrar el acceso:', e?.message || e));
+    }
     await firebase.database().ref(`salesops_allowed_users/${key}`).update(upd);
-    _allowedUsers[key] = { ..._allowedUsers[key], ...upd };
+    _allowedUsers[key] = { ..._allowedUsers[key], ...upd, accessLog: log };
   }
   // Mantener índice de UIDs para reglas de seguridad Firebase
   // El owner también sincroniza todos los UIDs existentes (migración automática)
@@ -16905,10 +16950,55 @@ async function renderUsersTab() {
                <option value="distributor" ${u.role==='distributor'?'selected':''}>Distribuidor</option>
                <option value="admin" ${u.role==='admin'?'selected':''}>Administrador</option>
              </select>
+             <button onclick="showUserAccessLog('${key}')" class="btn" style="padding:4px 8px;font-size:11px" title="Ver historial de accesos"><i class="ti ti-history" style="font-size:13px"></i></button>
              <button onclick="removeAllowedUser('${key}')" class="btn btn-danger" style="padding:4px 8px;font-size:11px" title="Eliminar acceso"><i class="ti ti-trash" style="font-size:13px"></i></button>`}
       </div>
     </div>`;
   }).join('');
+  renderAccessLog();
+}
+
+function showUserAccessLog(key) {
+  const sel = document.getElementById('access-log-user');
+  if (!sel) return;
+  sel.value = key;
+  renderAccessLog();
+  document.getElementById('access-log-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function renderAccessLog() {
+  const sel  = document.getElementById('access-log-user');
+  const list = document.getElementById('access-log-list');
+  if (!sel || !list) return;
+  const users = Object.entries(_allowedUsers).sort(([,a],[,b]) => String(a.email).localeCompare(String(b.email)));
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Todos los usuarios</option>' +
+    users.map(([k,u]) => `<option value="${k}">${esc(u.name ? `${u.name} (${u.email})` : u.email)}</option>`).join('');
+  sel.value = _allowedUsers[current] ? current : '';
+  const rows = [];
+  users.forEach(([k,u]) => {
+    if (sel.value && k !== sel.value) return;
+    Object.values(u.accessLog || {}).forEach(e => { if (e && e.at) rows.push({ ...e, email: u.email, name: u.name, role: u.role }); });
+  });
+  rows.sort((a,b) => String(b.at).localeCompare(String(a.at)));
+  if (!rows.length) {
+    list.innerHTML = `<div style="font-size:12px;color:var(--text3);padding:0.5rem 0">Sin accesos registrados${sel.value ? ' para este usuario' : ''}. El historial empezó a registrarse el 07/10/2026.</div>`;
+    return;
+  }
+  const ROLE_LBL = { admin:'Admin', readonly:'Solo lectura', 'reader-pi':'Lectura + PI', distributor:'Distribuidor' };
+  const shown = rows.slice(0, 200);
+  list.innerHTML = `<div style="max-height:420px;overflow:auto;border:0.5px solid var(--border);border-radius:var(--radius)">
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="position:sticky;top:0;background:var(--bg2);color:var(--text3);text-align:left">
+        <th style="padding:7px 10px;font-weight:500">Fecha y hora</th><th style="padding:7px 10px;font-weight:500">Usuario</th>
+        <th style="padding:7px 10px;font-weight:500">Rol</th><th style="padding:7px 10px;font-weight:500">Dispositivo</th></tr></thead>
+      <tbody>${shown.map(r => `<tr style="border-top:0.5px solid var(--border)">
+        <td style="padding:6px 10px;white-space:nowrap;color:var(--text)">${new Date(r.at).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}</td>
+        <td style="padding:6px 10px;color:var(--text)">${esc(r.email)}${r.name ? `<span style="color:var(--text3);margin-left:6px">${esc(r.name)}</span>` : ''}</td>
+        <td style="padding:6px 10px;color:var(--text3)">${esc(ROLE_LBL[r.role] || r.role || '—')}</td>
+        <td style="padding:6px 10px;color:var(--text3)">${esc(r.device || '—')}</td></tr>`).join('')}</tbody>
+    </table></div>
+    <div style="font-size:11px;color:var(--text3);margin-top:6px">${rows.length > shown.length ? `Mostrando los últimos ${shown.length} de ${rows.length}. ` : ''}Se registra un acceso por ingreso (las recargas dentro de 15 minutos no cuentan). Se guardan los últimos ${ACCESS_LOG_MAX} por usuario.</div>`;
 }
 
 function signInWithGoogle() {
