@@ -1640,7 +1640,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '07.10.26.9';
+const APP_VERSION = '07.10.26.10';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -7062,9 +7062,9 @@ ${_buildTransitAlertPanel(transitData)}
         <td style="padding:6px 10px;color:var(--text2);max-width:300px;white-space:normal;font-size:11px">${esc(itemsText)}</td>
         <td style="padding:6px 10px;text-align:center;${expColor}">${expStr}</td>
         <td style="padding:6px 10px;text-align:center;white-space:nowrap">
-          <button class="btn" style="font-size:10px;padding:3px 8px;color:var(--text2)" onclick="openPIEdit(${pi.id})" title="Editar fecha y tipo de embarque"><i class="ti ti-pencil" style="font-size:11px"></i></button>
+          ${_canManageTransit() ? `<button class="btn" style="font-size:10px;padding:3px 8px;color:var(--text2)" onclick="openPIEdit(${pi.id})" title="Editar fecha y tipo de embarque"><i class="ti ti-pencil" style="font-size:11px"></i></button>
           <button class="btn" style="font-size:10px;padding:3px 8px;margin-left:3px;color:var(--amber-text);border-color:var(--amber-text)" onclick="openTransitExtend(${pi.id})">Prórroga</button>
-          <button class="btn" style="font-size:10px;padding:3px 8px;margin-left:3px;color:var(--text3)" onclick="dismissTransit(${pi.id})">Quitar</button>
+          <button class="btn" style="font-size:10px;padding:3px 8px;margin-left:3px;color:var(--text3)" onclick="dismissTransit(${pi.id})">Quitar</button>` : ''}
           ${_currentRole==='admin'?`<button class="btn" style="font-size:10px;padding:3px 8px;margin-left:3px;color:#c0392b;border-color:#c0392b" onclick="adminDeletePI(${pi.id})" title="Eliminar permanentemente">Eliminar</button>`:''}
         </td>
       </tr>`;
@@ -7101,11 +7101,11 @@ function _buildTransitAlertPanel(transitData) {
         <span style="color:var(--text3);font-size:12px;margin-left:8px">${esc(pi.client||'')} · ${shipLabel}</span>
         <span style="color:var(--red-text);font-size:12px;margin-left:8px">${label}</span>
       </div>
-      <div style="display:flex;gap:6px;flex-shrink:0">
+      ${_canManageTransit() ? `<div style="display:flex;gap:6px;flex-shrink:0">
         <button class="btn" style="font-size:11px;padding:4px 8px;color:var(--text2)" onclick="openPIEdit(${pi.id})" title="Editar"><i class="ti ti-pencil" style="font-size:12px"></i></button>
         <button class="btn" style="font-size:11px;padding:4px 10px;color:var(--amber-text);border-color:var(--amber-text)" onclick="openTransitExtend(${pi.id})">Prórroga</button>
         <button class="btn" style="font-size:11px;padding:4px 10px;color:var(--text3)" onclick="dismissTransit(${pi.id})">Quitar del tránsito</button>
-      </div>
+      </div>` : ''}
     </div>`;
   }).join('');
 
@@ -7135,7 +7135,11 @@ async function adminDeletePI(piId) {
   _alert(`Orden ${piId} eliminada permanentemente.`, {type:'success'});
 }
 
+// Prórroga / quitar del tránsito / editar desde el Semáforo: solo Admin y Lectura + PI
+function _canManageTransit() { return _currentRole === 'admin' || _currentRole === 'reader-pi'; }
+
 async function dismissTransit(piId) {
+  if(!_canManageTransit()) return;
   if(!await _confirm('¿Confirmar que el embarque llegó y quitarlo del tránsito?', {title:'Finalizar tránsito', okLabel:'Confirmar llegada'})) return;
   const idx = db.pi.findIndex(x => x.id === piId);
   if(idx > -1) {
@@ -7147,6 +7151,7 @@ async function dismissTransit(piId) {
 }
 
 async function openTransitExtend(piId) {
+  if(!_canManageTransit()) return;
   const pi = db.pi.find(x => x.id === piId);
   if(!pi) return;
   const expAt = _piTransitExpiresAt(pi);
