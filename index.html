@@ -1640,7 +1640,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '07.10.26.3';
+const APP_VERSION = '07.10.26.4';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -6805,7 +6805,7 @@ ${_buildTransitAlertPanel(transitData)}
   html += `</tbody></table></div>`;
 
   // ── Tabla de tránsito activo (todos los PI/Invoice en tránsito) ──────────────
-  const sfKeysForTransit = _currentDistributor ? [_currentDistributor] : SF_DIST_KEYS;
+  const sfKeysForTransit = _currentRole === 'distributor' ? (_currentDistributor ? [_currentDistributor] : []) : SF_DIST_KEYS;
   const transitRows = allTransitPIs.filter(x => sfKeysForTransit.includes(x.dk));
 
   if(transitRows.length) {
@@ -6869,8 +6869,10 @@ function _buildTransitAlertPanel(transitData) {
   // Collect all expiring PIs across distributors (deduplicate by pi.id)
   const seen = new Set();
   const expiringAll = [];
-  SF_DIST_KEYS.forEach(dk => {
-    (transitData[dk].expiringPIs || []).forEach(pi => {
+  // Distribuidor: solo sus embarques (sin disty asignado no ve ninguno)
+  const keys = _currentRole === 'distributor' ? (_currentDistributor ? [_currentDistributor] : []) : SF_DIST_KEYS;
+  keys.forEach(dk => {
+    (transitData[dk]?.expiringPIs || []).forEach(pi => {
       if(!seen.has(pi.id)) { seen.add(pi.id); expiringAll.push(pi); }
     });
   });
@@ -7034,7 +7036,10 @@ async function exportSemaforoPDF() {
   if(!window.jspdf) { _alert('La librería de PDF no cargó. Revisá la conexión a internet.', {type:'error'}); return; }
   const { jsPDF } = window.jspdf;
 
-  const { products, transitData } = buildSemaforoData();
+  let { products, transitData } = buildSemaforoData();
+  // Distribuidor: solo su columna y los modelos que tiene en stock o tránsito (igual que en pantalla)
+  const pdfKeys = _currentRole === 'distributor' ? (_currentDistributor ? [_currentDistributor] : []) : SF_DIST_KEYS;
+  if(_currentRole === 'distributor') products = products.filter(p => pdfKeys.some(dk => p.distQty[dk] || transitData[dk]?.keys.has(p.normModel)));
   if(!products.length) { _alert('No hay datos disponibles.', {type:'info'}); return; }
 
   const today = new Date();
@@ -7065,12 +7070,12 @@ async function exportSemaforoPDF() {
   const head = [
     [
       { content: 'MODELO', rowSpan: 2, styles: { halign:'left', valign:'middle', fontStyle:'bold' } },
-      ...SF_DIST_KEYS.flatMap(dk => [
+      ...pdfKeys.flatMap(dk => [
         { content: SF_DIST_SHORT[dk], colSpan: 2, styles: { halign:'center', fontStyle:'bold' } }
       ])
     ],
     [
-      ...SF_DIST_KEYS.flatMap(() => [
+      ...pdfKeys.flatMap(() => [
         { content: 'STK', styles: { halign:'center', fontStyle:'bold' } },
         { content: 'TRÁ', styles: { halign:'center', fontStyle:'bold' } }
       ])
@@ -7082,24 +7087,24 @@ async function exportSemaforoPDF() {
   products.forEach(p => {
     if(p.category !== lastCat) {
       lastCat = p.category;
-      body.push([{ content: SF_CAT_LABELS[p.category] || p.category.toUpperCase(), colSpan: 1 + SF_DIST_KEYS.length*2, styles:{fillColor:[94,129,172],textColor:[255,255,255],fontStyle:'bold',fontSize:8,cellPadding:4} }]);
+      body.push([{ content: SF_CAT_LABELS[p.category] || p.category.toUpperCase(), colSpan: 1 + pdfKeys.length*2, styles:{fillColor:[94,129,172],textColor:[255,255,255],fontStyle:'bold',fontSize:8,cellPadding:4} }]);
     }
     // Clean display name + truncate to keep on one line
     const modelName = p.displayName.slice(0, 55);
     const row = [{ content: modelName, styles: { halign:'left', overflow:'ellipsize' } }];
-    SF_DIST_KEYS.forEach(dk => {
+    pdfKeys.forEach(dk => {
       const qty = p.distQty[dk] || 0;
       const lbl = stockLabel(qty);
       const col = stockColor(qty);
       row.push({ content: lbl, styles: col ? {fillColor:col, textColor:[255,255,255], fontStyle:'bold', halign:'center'} : {halign:'center'} });
-      const hasT = transitData[dk].keys.has(p.normModel);
+      const hasT = transitData[dk]?.keys.has(p.normModel);
       row.push({ content: hasT ? 'SI' : '', styles: hasT ? {fillColor:[235,203,139], textColor:[31,42,68], halign:'center', fontStyle:'bold'} : {halign:'center'} });
     });
     body.push(row);
   });
 
   const colStyles = { 0: { cellWidth: MODEL_W, halign:'left' } };
-  SF_DIST_KEYS.forEach((_,i) => {
+  pdfKeys.forEach((_,i) => {
     colStyles[1 + i*2]   = { cellWidth: DATA_W, halign:'center' };
     colStyles[2 + i*2]   = { cellWidth: DATA_W, halign:'center' };
   });
