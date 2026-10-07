@@ -1640,7 +1640,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '07.10.26.4';
+const APP_VERSION = '07.10.26.5';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -5135,14 +5135,33 @@ const STOCK_GDRIVE_FILE_ID = '1wgHbYfXo65Z9iZxGV0vTdy1NCiKnyl5J0Ju9HrsuiKw';
 const STOCK_DIFF_FB_KEY      = _yk('salesops_stock_diff');
 const STOCK_CHANGELOG_FB_KEY = _yk('salesops_stock_changelog');
 
-// Lee stock_diff_latest.json desde el directorio local (mismo que index.html).
-// El scheduled task lo escribe aunque el sandbox no pueda llegar a Firebase.
-// El CRM (browser) sí tiene red completa → hace el PUT a Firebase en nombre del task.
-async function _fetchLocalStockDiff() {
+// El chequeo automático (GitHub Action, lun-vie 15:00 ART) escribe en Firebase en
+// 'salesops_stock_diff' / 'salesops_stock_changelog' (SIN sufijo de año); las cargas manuales de
+// Excel desde el CRM escriben en las claves con sufijo. Antes el panel leía solo la clave con sufijo
+// + el archivo stock_diff_latest.json del sitio, pero el .htaccess bloquea los .json, así que el
+// panel quedaba congelado en el último dato copiado a mano.
+const STOCK_DIFF_ACTION_KEY      = 'salesops_stock_diff';
+const STOCK_CHANGELOG_ACTION_KEY = 'salesops_stock_changelog';
+
+async function _readStockDiffKey(key) {
   try {
-    const r = await fetch('./stock_diff_latest.json?_=' + Date.now(), { cache: 'no-store' });
-    return r.ok ? await r.json() : null;
+    const snap = await _fbDB.ref(key).get();
+    if(!snap.exists()) return null;
+    const v = snap.val();
+    return typeof v === 'string' ? JSON.parse(v) : v;
   } catch(e) { return null; }
+}
+
+// El resultado más nuevo entre el chequeo automático y la última carga manual. Si el automático
+// es más nuevo se copia a la clave del CRM (sin viewedAt → queda como "no visto").
+async function _loadLatestStockDiff() {
+  const [own, action] = await Promise.all([_readStockDiffKey(STOCK_DIFF_FB_KEY), _readStockDiffKey(STOCK_DIFF_ACTION_KEY)]);
+  if(action && (!own || String(action.checkedAt) > String(own.checkedAt))) {
+    try { await _fbDB.ref(STOCK_DIFF_FB_KEY).set(JSON.stringify(action)); }
+    catch(e) { console.warn('[StockSync] no se pudo copiar el chequeo automático (no crítico):', e); }
+    return action;
+  }
+  return own;
 }
 
 async function renderStockUpdatePanel() {
@@ -5150,25 +5169,7 @@ async function renderStockUpdatePanel() {
   if(!panel) return;
   panel.innerHTML = `<div style="font-size:12px;color:var(--text3);padding:6px 0"><i class="ti ti-refresh" style="font-size:12px"></i> Cargando estado del Stock Update...</div>`;
   try {
-    // 1. Intentar Firebase
-    let data = null;
-    try {
-      const snap = await _fbDB.ref(STOCK_DIFF_FB_KEY).get();
-      if (snap.exists()) data = JSON.parse(snap.val());
-    } catch(e) {}
-
-    // 2. Archivo local — más nuevo o Firebase vacío → usar local
-    const local = await _fetchLocalStockDiff();
-    if (local && (!data || local.checkedAt > data.checkedAt)) {
-      data = local;
-      // El browser sí llega a Firebase: sincronizar en nombre del scheduled task
-      try {
-        await _fbDB.ref(STOCK_DIFF_FB_KEY).set(JSON.stringify(data));
-        console.log('[StockSync] archivo local → Firebase OK');
-      } catch(e) { console.warn('[StockSync] sync a Firebase falló (no crítico):', e); }
-    }
-
-    _renderStockPanel(panel, data);
+    _renderStockPanel(panel, await _loadLatestStockDiff());
     loadStockChangelog();
   } catch(e) {
     panel.innerHTML = `<div style="font-size:12px;color:var(--text3);padding:6px 0">No se pudo cargar el estado del Stock Update.</div>`;
@@ -5180,28 +5181,9 @@ async function refreshStockPanel() {
   if(!panel) return;
   panel.innerHTML = `<div style="font-size:12px;color:var(--text3);padding:8px 0"><i class="ti ti-refresh" style="font-size:12px"></i> Actualizando...</div>`;
   try {
-    // Antes esta función solo releía Firebase (STOCK_DIFF_FB_KEY, con sufijo de año) — pero el
-    // GitHub Action escribe en la clave "salesops_stock_diff" (SIN sufijo), así que nunca coinciden
-    // directamente. El único lugar que reconciliaba ambas era la carga inicial de la página
-    // (renderStockUpdatePanel, vía el archivo stock_diff_latest.json commiteado por el Action).
-    // Por eso "Refrescar" nunca mostraba nada nuevo si el Action corrió con la página ya abierta.
-    // Ahora repetimos la misma reconciliación acá.
-    let data = null;
-    try {
-      const snap = await _fbDB.ref(STOCK_DIFF_FB_KEY).get();
-      if(snap.exists()) data = JSON.parse(snap.val());
-    } catch(e) {}
-    const local = await _fetchLocalStockDiff();
-    if(local && (!data || local.checkedAt > data.checkedAt)) data = local;
-
-    if(data) {
-      const user = firebase.auth ? firebase.auth().currentUser : null;
-      data.triggeredBy = user ? (user.displayName || user.email || 'usuario') : 'usuario';
-      data.triggerMode = 'manual';
-      data.refreshedAt = new Date().toISOString();
-      await _fbDB.ref(STOCK_DIFF_FB_KEY).set(JSON.stringify(data));
-    }
-    _renderStockPanel(panel, data);
+    // Refrescar solo vuelve a leer el último resultado — no dispara un chequeo nuevo
+    // (ese corre solo, lun-vie 15:00 ART). Antes además se marcaba como "Actualizado por <usuario>".
+    _renderStockPanel(panel, await _loadLatestStockDiff());
     loadStockChangelog();
   } catch(e) {
     panel.innerHTML = `<div style="font-size:12px;color:var(--text3);padding:8px 0">No se pudo actualizar.</div>`;
@@ -5298,20 +5280,24 @@ function _renderStockPanel(panel, data) {
 }
 
 function _watchStockDiffBadge() {
-  _fbDB.ref(STOCK_DIFF_FB_KEY).on('value', snap => {
+  // Escucha las dos claves (carga manual y chequeo automático) y usa la más nueva
+  const latest = {};
+  const update = () => {
     const nb = document.getElementById('nb-pricelist');
     if(!nb) return;
-    if(!snap.exists()) { nb.style.display = 'none'; return; }
-    try {
-      const data = JSON.parse(snap.val());
-      const isNew = data.hasChanges && (!data.viewedAt || data.viewedAt < data.checkedAt);
-      nb.style.display = isNew ? 'inline' : 'none';
-    } catch(e) { nb.style.display = 'none'; }
-  });
+    const { own, action } = latest;
+    const data = action && (!own || String(action.checkedAt) > String(own.checkedAt)) ? action : own;
+    const isNew = !!data && data.hasChanges && (!data.viewedAt || data.viewedAt < data.checkedAt);
+    nb.style.display = isNew ? 'inline' : 'none';
+  };
+  const parse = snap => { try { const v = snap.val(); return v == null ? null : (typeof v === 'string' ? JSON.parse(v) : v); } catch(e) { return null; } };
+  _fbDB.ref(STOCK_DIFF_FB_KEY).on('value', snap => { latest.own = parse(snap); update(); });
+  _fbDB.ref(STOCK_DIFF_ACTION_KEY).on('value', snap => { latest.action = parse(snap); update(); }, () => {});
 }
 
 async function markStockDiffViewed() {
   try {
+    await _loadLatestStockDiff(); // asegura que el chequeo automático más nuevo esté copiado antes de marcarlo
     const snap = await _fbDB.ref(STOCK_DIFF_FB_KEY).get();
     if(snap.exists()) {
       const data = JSON.parse(snap.val());
@@ -5428,15 +5414,20 @@ async function handleLatamStockDiff(products, sourceFile) {
 async function loadStockChangelog() {
   const panel = document.getElementById('stock-changelog-panel');
   if(!panel) return;
-  try {
-    const snap = await _fbDB.ref(STOCK_CHANGELOG_FB_KEY).orderByKey().limitToLast(20).get();
-    if(snap.exists()) {
-      const entries = [];
-      snap.forEach(child => entries.unshift(child.val())); // más reciente primero
-      renderStockChangelog(panel, entries);
-      return;
-    }
-  } catch(e) {}
+  // Junta las cargas manuales (clave con sufijo) y los chequeos automáticos (clave sin sufijo)
+  const read = async key => {
+    try {
+      const snap = await _fbDB.ref(key).orderByKey().limitToLast(20).get();
+      const out = [];
+      if(snap.exists()) snap.forEach(child => { const v = child.val(); if(v && typeof v === 'object') out.push(v); });
+      return out;
+    } catch(e) { return []; }
+  };
+  const [own, action] = await Promise.all([read(STOCK_CHANGELOG_FB_KEY), read(STOCK_CHANGELOG_ACTION_KEY)]);
+  const entries = [...own, ...action]
+    .sort((a, b) => String(b.checkedAt || '').localeCompare(String(a.checkedAt || ''))) // más reciente primero
+    .slice(0, 20);
+  if(entries.length) { renderStockChangelog(panel, entries); return; }
   // Fallback: archivo local stock_changelog.json (escrito por el scheduled task)
   try {
     const r = await fetch('./stock_changelog.json?_=' + Date.now(), { cache: 'no-store' });
