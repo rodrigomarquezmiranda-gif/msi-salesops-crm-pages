@@ -1640,7 +1640,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '07.10.26.5';
+const APP_VERSION = '07.10.26.6';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -6673,9 +6673,128 @@ function buildSemaforoData() {
   return { products, transitData, latestSnap, allTransitPIs };
 }
 
+// ─── SEMÁFORO: VISTA "SOLO TRÁNSITO" ─────────────────────────────────────────
+// Qué tiene cada disty en camino: modelos × distribuidor con cantidades, según las órdenes
+// en tránsito (misma regla que la tabla de tránsito del Semáforo: _piInTransit).
+let _sfTransitView = false;
+function setSemaforoTransitView(on) { _sfTransitView = !!on; renderSemaforoTab(); }
+
+// Ítems con cantidad de una orden: la invoice (lo efectivamente embarcado) manda sobre la PI.
+// No se suman las dos fuentes porque son el mismo embarque (se contaría doble).
+function _piTransitQtyItems(pi) {
+  const name = li => li.marketingName || li.model || li.itemCode || '';
+  const inv = (pi.invoiceItems || []).filter(li => name(li) && (li.qtyShipped || 0) > 0);
+  if(inv.length) return inv.map(li => ({ desc: name(li), qty: li.qtyShipped, category: li.category || '' }));
+  const lines = (pi.lineItems || []).filter(li => name(li));
+  if(lines.length) return lines.map(li => ({ desc: name(li), qty: li.ordered || li.qtyShipped || 0, category: li.category || '' }));
+  return (pi.invoiceItems || []).filter(li => name(li)).map(li => ({ desc: name(li), qty: 0, category: li.category || '' }));
+}
+
+function _renderSemaforoTransitView(wrap) {
+  const keys = _currentRole === 'distributor' ? (_currentDistributor ? [_currentDistributor] : []) : SF_DIST_KEYS;
+  const { allTransitPIs } = buildSemaforoData();
+  const rows = allTransitPIs.filter(x => keys.includes(x.dk));
+  const fmtD = d => d ? d.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit' }) : '—';
+  const SHIP = { 'miami-aereo':'✈️ Miami Aéreo', 'miami-maritimo':'🚢 Miami Marítimo', 'china-maritimo':'🚢 China Marítimo' };
+
+  // models: key → { desc, category, byDist: { dk: { qty, unknown, etas:[Date], pis:[name] } } }
+  const models = new Map();
+  const distTot = {}; keys.forEach(dk => distTot[dk] = { units: 0, pis: 0, nextEta: null });
+  const noDetail = [];
+  rows.forEach(({ pi, dk }) => {
+    const eta = _piTransitExpiresAt(pi);
+    distTot[dk].pis++;
+    if(eta && (!distTot[dk].nextEta || eta < distTot[dk].nextEta)) distTot[dk].nextEta = eta;
+    const items = _piTransitQtyItems(pi);
+    if(!items.length) { noDetail.push({ pi, dk, eta }); return; }
+    items.forEach(it => {
+      const k = extractMSIModelKey(it.desc) || normDesc(it.desc);
+      if(!k) return;
+      if(!models.has(k)) {
+        let cat = classifyProductCategory(it.desc);
+        if(cat === 'other' && it.category) cat = classifyProductCategory(it.category);
+        models.set(k, { desc: it.desc, category: cat, byDist: {} });
+      }
+      const m = models.get(k);
+      if(it.desc.length < m.desc.length) m.desc = it.desc;
+      const c = m.byDist[dk] || (m.byDist[dk] = { qty: 0, unknown: false, etas: [], pis: [] });
+      c.qty += it.qty || 0;
+      if(!it.qty) c.unknown = true;
+      if(eta) c.etas.push(eta);
+      if(!c.pis.includes(pi.name)) c.pis.push(pi.name);
+      distTot[dk].units += it.qty || 0;
+    });
+  });
+
+  const catOrder = [...SF_CAT_ORDER, 'other'];
+  const list = [...models.values()]
+    .map(m => ({ ...m, name: semaforoDisplayName(m.desc, m.category) || m.desc, total: keys.reduce((s, dk) => s + (m.byDist[dk]?.qty || 0), 0) }))
+    .sort((a, b) => (catOrder.indexOf(a.category) - catOrder.indexOf(b.category)) || (b.total - a.total) || a.name.localeCompare(b.name));
+  const grandTotal = keys.reduce((s, dk) => s + distTot[dk].units, 0);
+
+  const header = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+    <div style="font-size:13px;color:var(--text3)"><i class="ti ti-ship" style="font-size:14px;vertical-align:-2px;color:#8a5c00"></i>
+      Mercadería en tránsito · ${rows.length} embarque${rows.length!==1?'s':''} · ${grandTotal.toLocaleString('es-AR')} unidades</div>
+    <button class="btn" onclick="setSemaforoTransitView(false)"><i class="ti ti-traffic-lights" style="font-size:14px"></i> Volver al semáforo</button>
+  </div>`;
+
+  if(!rows.length) {
+    wrap.innerHTML = header + `<div class="empty-state"><i class="ti ti-ship"></i><p>No hay mercadería en tránsito en este momento.</p></div>`;
+    return;
+  }
+
+  const cards = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin-bottom:16px">
+    ${keys.map(dk => `<div style="background:var(--bg);border:0.5px solid var(--border);border-radius:10px;padding:10px 12px">
+      <div style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:0.3px">${esc(SF_DIST_LABELS[dk] || dk)}</div>
+      <div style="font-size:20px;font-weight:700;color:${distTot[dk].units ? 'var(--text)' : 'var(--text3)'};margin-top:2px">${distTot[dk].units.toLocaleString('es-AR')} <span style="font-size:11px;font-weight:400;color:var(--text3)">uds</span></div>
+      <div style="font-size:11px;color:var(--text3)">${distTot[dk].pis} embarque${distTot[dk].pis!==1?'s':''}${distTot[dk].nextEta ? ` · próxima llegada ${fmtD(distTot[dk].nextEta)}` : ''}</div>
+    </div>`).join('')}
+  </div>`;
+
+  let body = '', curCat = null, alt = false;
+  list.forEach(m => {
+    if(m.category !== curCat) {
+      curCat = m.category; alt = false;
+      body += `<tr class="sf-cat-row"><td colspan="${keys.length + 2}">${esc(SF_CAT_LABELS[m.category] || (m.category === 'other' ? 'OTROS' : m.category.toUpperCase()))}</td></tr>`;
+    }
+    body += `<tr class="${alt ? 'sf-alt' : ''}"><td class="sf-model">${esc(m.name)}</td>
+      ${keys.map(dk => {
+        const c = m.byDist[dk];
+        if(!c) return '<td></td>';
+        const eta = c.etas.length ? new Date(Math.min(...c.etas)) : null;
+        const tip = `${c.pis.join(', ')}${eta ? ` · llegada est. ${fmtD(eta)}` : ''}`;
+        return `<td style="text-align:center" title="${esc(tip)}"><b>${c.qty ? c.qty.toLocaleString('es-AR') : '?'}</b>${c.unknown && c.qty ? '<span style="color:var(--text3)">+?</span>' : ''}${eta ? `<div style="font-size:10px;color:var(--text3)">${fmtD(eta)}</div>` : ''}</td>`;
+      }).join('')}
+      ${keys.length > 1 ? `<td style="text-align:center;font-weight:700">${m.total ? m.total.toLocaleString('es-AR') : '—'}</td>` : ''}
+    </tr>`;
+    alt = !alt;
+  });
+
+  const table = `<div class="sf-wrap"><table class="sf-table">
+    <thead><tr><th class="sf-th-model">MODELO</th>${keys.map(dk => `<th class="sf-dist-head">${esc(SF_DIST_LABELS[dk] || dk)}</th>`).join('')}${keys.length > 1 ? '<th class="sf-dist-head">TOTAL</th>' : ''}</tr></thead>
+    <tbody>${body}</tbody></table></div>
+    <div style="font-size:11px;color:var(--text3);margin-top:8px">Cantidades de la invoice (o de la PI si todavía no hay invoice). Debajo de cada cantidad, la llegada estimada (inicio del tránsito + días según tipo de embarque). "?" = la orden no trae cantidad para ese modelo. Pasá el mouse para ver las órdenes.</div>`;
+
+  const noDetailHtml = noDetail.length ? `<div style="margin-top:14px;font-size:12px;color:var(--text2)">
+    <b>Embarques sin detalle de productos:</b> ${noDetail.map(x => `${esc(x.pi.name)} (${esc(SF_DIST_SHORT[x.dk] || x.dk)}${x.pi.shipmentType ? ' · ' + (SHIP[x.pi.shipmentType] || x.pi.shipmentType) : ''}${x.eta ? ' · llega ' + fmtD(x.eta) : ''})`).join(' · ')}
+  </div>` : '';
+
+  wrap.innerHTML = `<style>
+.sf-wrap { overflow-x:auto; border:0.5px solid var(--border); border-radius:10px; }
+.sf-table { border-collapse:collapse; width:100%; font-size:12px; }
+.sf-table th { background:#2E3440; color:#fff; padding:6px 8px; font-weight:600; position:sticky; top:0; }
+.sf-table td { padding:5px 8px; border-bottom:0.5px solid var(--border); color:var(--text); }
+.sf-th-model, .sf-model { text-align:left; min-width:220px; }
+.sf-cat-row td { background:#5E81AC; color:#fff; font-weight:700; font-size:11px; letter-spacing:0.05em; padding:5px 10px; }
+.sf-dist-head { text-align:center; font-size:11px; padding:4px; }
+.sf-alt { background:var(--bg2); }
+</style>` + header + cards + table + noDetailHtml;
+}
+
 function renderSemaforoTab() {
   const wrap = document.getElementById('semaforo-content');
   if(!wrap) return;
+  if(_sfTransitView) { _renderSemaforoTransitView(wrap); return; }
 
   // Para usuario distribuidor: mostrar solo su columna
   const sfKeys = _currentDistributor ? [_currentDistributor] : SF_DIST_KEYS;
@@ -6729,9 +6848,14 @@ function renderSemaforoTab() {
   <div>
     <span style="font-size:13px;color:var(--text3)">Generado: ${dateStr} · Stock basado en últimos reportes por distribuidor</span>
   </div>
-  <button class="btn" onclick="exportSemaforoPDF()" style="color:#D08770;border-color:rgba(208,135,112,0.4)">
-    <i class="ti ti-file-type-pdf" style="font-size:14px"></i> Exportar PDF
-  </button>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <button class="btn" onclick="setSemaforoTransitView(true)" style="color:#8a5c00;border-color:rgba(235,203,139,0.7)">
+      <i class="ti ti-ship" style="font-size:14px"></i> Solo tránsito
+    </button>
+    <button class="btn" onclick="exportSemaforoPDF()" style="color:#D08770;border-color:rgba(208,135,112,0.4)">
+      <i class="ti ti-file-type-pdf" style="font-size:14px"></i> Exportar PDF
+    </button>
+  </div>
 </div>
 ${_buildTransitAlertPanel(transitData)}
 <div class="sf-wrap">
