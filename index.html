@@ -1640,7 +1640,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '07.10.26.10';
+const APP_VERSION = '07.10.26.11';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -7850,7 +7850,7 @@ function _pbmClassifyRow(desc) {
 
   const correct = gab + psu + mb + vga + (lc || 0);
   const effectiveTier = Math.max(ct, pt, mt || 0, effVgaTier || 0, lt || 0);
-  return { chassisTier: ct, effectiveTier, prog, gab, psu, mb, vga, lc, correct, claimed: 0 };
+  return { chassisTier: ct, effectiveTier, prog, gab, psu, mb, vga, lc, correct };
 }
 
 // ── FullHard multi-line format detector & parser ─────────────
@@ -8033,7 +8033,7 @@ function _pbmClassifyComponents(gabDesc, psuDesc, mbDesc, vgaDesc, lcDesc) {
   if (hasLC && lt === 3 && hasMB && mt === 4) lc = (hasVGA && vt !== null && vt <= 3) ? 5 : 2;
   const correct = gab + psu + mb + vga + (lc || 0);
   const effectiveTier = Math.max(ct, pt, mt || 0, effVgaTier || 0, lt || 0);
-  return { chassisTier: ct, effectiveTier, prog, gab, psu, mb, vga, lc, correct, claimed: 0 };
+  return { chassisTier: ct, effectiveTier, prog, gab, psu, mb, vga, lc, correct };
 }
 
 // ── VENEX multi-column format detector & parser ───────────────
@@ -8105,8 +8105,20 @@ function _pbmParseVenex(rows) {
 function _pbmParseXLSX(arrayBuffer) {
   // Use SheetJS (loaded via CDN in the existing app)
   const data = XLSX.read(arrayBuffer, { type:'array', cellDates:true });
-  const ws   = data.Sheets[data.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:'', raw:true });
+  // No asumir que el reporte está en la primera hoja: puede haber hojas de resumen (incluso ocultas)
+  // antes. Se prueban primero las visibles, en orden, y se usa la primera que se pueda leer.
+  const meta = (data.Workbook && data.Workbook.Sheets) || [];
+  const order = data.SheetNames.map((name, i) => ({ name, hidden: !!(meta[i] && meta[i].Hidden) }))
+    .sort((a, b) => a.hidden - b.hidden);
+  for (const { name } of order) {
+    const rows = XLSX.utils.sheet_to_json(data.Sheets[name], { header:1, defval:'', raw:true });
+    const parsed = _pbmParseRows(rows);
+    if (parsed && parsed.length) return parsed;
+  }
+  return null;
+}
+
+function _pbmParseRows(rows) {
   // Auto-detect FullHard multi-line format
   if (_pbmIsFullHardFormat(rows)) return _pbmParseFullHard(rows);
   // Auto-detect VENEX multi-column format (Modelo completo gabinete/fuente/mother/VGA/water)
