@@ -1624,7 +1624,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '07.10.26.1';
+const APP_VERSION = '07.10.26.2';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -3150,7 +3150,7 @@ const _MSI_PRICE_LIST = new Map([
   // description for the same physical case — unify both keys to one canonical display row.
   ['FORGE M100A', ['MAG FORGE M100A', 'gabinete']],
   ['FAN FORGE M100A RGB', ['MAG FORGE M100A', 'gabinete']],
-  ['13SUS ACTIVE EDGEXPERT', ['EdgeXpert 13SUS Active', 'minipc']],
+  ['13SUS ACTIVE EDGEXPERT', ['EdgeXpert 13SUS Active', 'ai']],
   ['240 A12 CORELIQUID', ['MAG CORELIQUID A12 240', 'cooling']],
   ['240 A13 CORELIQUID', ['MAG CORELIQUID A13 240', 'cooling']],
   ['240 A13 CORELIQUID WHITE', ['MAG CORELIQUID A13 240 WHITE', 'cooling']],
@@ -4938,6 +4938,7 @@ const LATAM_CAT_MAP = {
   'pro mnt 22"/16" flat':'PRO MNT 22"/16" Flat',
   'monitor arm':'Monitor ARM','arm':'Monitor ARM',
   'power cords':'Power Cords',
+  'ai solutions':'AI Solutions','ai solution':'AI Solutions','edge ai':'AI Solutions',
   'cubi':'CUBI','minipc':'CUBI',
   'gabinete':'Chassis','gabinetes':'Chassis','chassis':'Chassis',
   'liquid cooling':'Liquid Cooling','cooling':'Liquid Cooling',
@@ -5030,7 +5031,9 @@ function parseLatamStockRows(rows, fileName, sheet) {
     const bondedStock=parseStockNum(row[LATAM_COL.bondedStock]);
     const bondedEta=String(row[LATAM_COL.bondedEta]||'').trim()||null;
     if(!desc&&price===null&&!effectiveCode) return;
-    products.push({code:effectiveCode,desc,detalle,estado,ficha,qtyCtn,qtyPlt,price,priceQ,miamiStock,miamiEta,bondedStock,bondedEta,upc,category:currentCat});
+    // EdgeXpert / PRO MAX EDGE AI son AI Solutions aunque la planilla los deje bajo otro encabezado
+    const category=/EDGE\s*-?\s*(XPERT|AI(?![A-Z]))/i.test(effectiveCode+' '+desc)?'AI Solutions':currentCat;
+    products.push({code:effectiveCode,desc,detalle,estado,ficha,qtyCtn,qtyPlt,price,priceQ,miamiStock,miamiEta,bondedStock,bondedEta,upc,category});
   });
   return {products,sourceFile:fileName,isLatamFormat:true};
 }
@@ -6487,11 +6490,11 @@ function _vgaSortKey(disp) {
 const SF_DIST_KEYS   = ['air','invid','solutionbox','ashir','elit'];
 const SF_DIST_LABELS = { air:'AIR COMPUTERS', invid:'INVID', solutionbox:'SOLUTION BOX', ashir:'ASHIR', elit:'ELIT' };
 const SF_DIST_SHORT  = { air:'AIR', invid:'INVID', solutionbox:'SOLUTION', ashir:'ASHIR', elit:'ELIT' };
-const SF_CAT_ORDER   = ['motherboard','vga','ssd','psu','cooling','gabinete','monitor','minipc','accesorios'];
+const SF_CAT_ORDER   = ['motherboard','vga','ssd','psu','cooling','gabinete','monitor','minipc','ai','accesorios'];
 const SF_CAT_LABELS  = {
   motherboard:'MOTHERS', vga:'VGA / PLACAS DE VIDEO', ssd:'SSD',
   psu:'FUENTES', cooling:'COOLING', gabinete:'GABINETES',
-  monitor:'MONITORES', minipc:'MINI PC / PRO DT', accesorios:'ACCESORIOS'
+  monitor:'MONITORES', minipc:'MINI PC / PRO DT', ai:'AI SOLUTIONS', accesorios:'ACCESORIOS'
 };
 // Maps known razón-social aliases to the canonical client name stored in Firebase.
 // Call this when reading client from a parsed PDF before saving/prefilling.
@@ -7344,7 +7347,7 @@ const SF_CAT_LABELS_SHARE = {
   motherboard: 'Motherboards', vga: 'VGA / Tarjetas de Video',
   ssd: 'SSD / Almacenamiento', psu: 'Fuentes de Poder',
   cooling: 'Coolers', gabinete: 'Gabinetes',
-  monitor: 'Monitores', minipc: 'Mini PC',
+  monitor: 'Monitores', minipc: 'Mini PC', ai: 'AI Solutions',
   accesorios: 'Accesorios',
 };
 
@@ -9310,7 +9313,8 @@ const CATEGORY_KEYWORDS = [
   { key:'vga',         label:'Placas de Video',      keywords:['PLACA DE VIDEO','TARJETA GRAFICA','PLACA MSI','GEFORCE','GEFORC','VGA','VIDEO','RTX','GTX','RADEON'] },
   { key:'gabinete',    label:'Gabinetes',            keywords:['GABINETES','GABINETE','CHASSIS','GAB','MAESTRO','MEG MAESTRO','TOWER','COMPUTER CASE','PC CASE','MID TOWER','FULL TOWER','CASE ATX','ATX CASE','PANO'] },
   { key:'psu',         label:'Fuentes',              keywords:['FUENTE DE ALIMENTACION','FUENTE','PSU','TITANIUM'] },
-  { key:'minipc',      label:'Mini PC',              keywords:['MINIPC','MINI PC','CUBI','EDGEXPERT','EDGE XPERT'] },
+  { key:'ai',          label:'AI Solutions',         keywords:['EDGEXPERT','EDGE XPERT','EDGE AI'] },
+  { key:'minipc',      label:'Mini PC',              keywords:['MINIPC','MINI PC','CUBI'] },
   { key:'ssd',         label:'Almacenamiento (SSD)', keywords:['DISCO DE ESTADO SOLIDO','SSD','DISCO SOLIDO','DISCO','SOLIDO'] },
   { key:'cooling',     label:'Cooling',              keywords:['WATERCOOLING','WATERCOOLER','WATER COOLING','CORELIQUID','CORE LIQUID','CPU COOLER','AIR COOLER','COOLER','WATER'] },
   { key:'accesorios',  label:'Accesorios',           keywords:['TECLADOS','TECLADO','TEC','MOUSE','MOU','AURICULARES','AURICULAR','AURIS','FORGE GK100 COMBO','FORGE GK 100 COMBO','FORGE GK100LS','FORGE GK100 LS','FORGE GK100','FORGE GK 100LS','FORGE GK 100 LS','FORGE GK 100','GAMEPAD','GAME PAD','JOYSTICK','MODULO TPM','TPM','ACC','FORCE GC','FORCE GC30','FORCE GC20','GC30','GC20','HEADSET','HEADPHONE','CONTROLLER','CONTROLADOR','CLUTCH','VIGOR GK','INTERCEPTOR','SPATULA','THUNDERSTRUCK'] },
@@ -9319,7 +9323,7 @@ const CATEGORY_LABELS = Object.fromEntries(CATEGORY_KEYWORDS.map(c => [c.key, c.
 CATEGORY_LABELS.other = 'Otros';
 const CATEGORY_COLOR = {
   motherboard: '#88C0D0', monitor: '#81A1C1', vga: '#A3BE8C',
-  gabinete: '#9DA7B9',    psu: '#EBCB8B',     minipc: '#B48EAD',
+  gabinete: '#9DA7B9',    psu: '#EBCB8B',     minipc: '#B48EAD',  ai: '#5E81AC',
   ssd: '#8FBCBB',         cooling: '#BF616A',  accesorios: '#D08770',
   other: '#6B7A96'
 };
