@@ -1640,7 +1640,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '07.10.26.8';
+const APP_VERSION = '07.10.26.9';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -6681,6 +6681,46 @@ let _sfTransitDist = 'all'; // 'all' | key de distribuidor
 function setSemaforoTransitView(on) { _sfTransitView = !!on; renderSemaforoTab(); }
 function setSemaforoTransitDist(dk) { _sfTransitDist = dk; renderSemaforoTab(); }
 
+// Para un disty: modelos que no trabaja (no los vende, no tiene stock ni en camino) pero sí venden
+// otros distys y hay disponibles en la lista de precios. Primero los que venden más distys.
+function _buildTransitOffer(dk, transitModels) {
+  const { products } = buildSugeridosData();
+  const inTransit = key => !!transitModels.get(key)?.byDist[dk];
+  const plByKey = new Map();
+  (priceList?.products || []).forEach(p => {
+    if(p.isSubSection) return;
+    const k = extractMSIModelKey(p.desc || p.code || '');
+    if(k && !plByKey.has(k)) plByKey.set(k, p);
+  });
+  const hasPL = plByKey.size > 0;
+  const avail = p => p ? (Number(p.miamiStock) || 0) + (Number(p.bondedStock) || 0) : null;
+  const fmtN = n => Math.round(n).toLocaleString('es-AR');
+  const fmtR = n => n >= 10 ? fmtN(n) : n.toFixed(1).replace('.', ',');
+  const others = SF_DIST_KEYS.filter(d => d !== dk);
+  const offer = products.filter(p => !(p.distWeekly[dk] > 0) && !(p.distStock[dk] > 0) && !inTransit(p.key)).map(p => ({
+    p, pl: plByKey.get(p.key),
+    rate: others.reduce((t, d) => t + (p.distWeekly[d] || 0), 0),
+    nDist: others.filter(d => (p.distWeekly[d] || 0) > 0).length
+  })).filter(x => x.rate > 0 && (!hasPL || avail(x.pl) > 0))
+    .sort((a, b) => b.nDist - a.nDist || b.rate - a.rate)
+    .slice(0, 30);
+
+  const th = t => `<th class="sf-dist-head">${t}</th>`;
+  const body = offer.length ? `<div class="sf-wrap"><table class="sf-table">
+      <thead><tr><th class="sf-th-model">MODELO</th>${th('LO VENDEN')}${th('VENTA / SEM (OTROS)')}${th('PRECIO LISTA')}${th('DISPONIBLE MSI')}</tr></thead>
+      <tbody>${offer.map((x, i) => `<tr class="${i % 2 ? 'sf-alt' : ''}">
+        <td class="sf-model">${esc(semaforoDisplayName(x.p.description, x.p.category) || x.p.description)}</td>
+        <td style="text-align:center">${x.nDist} disty${x.nDist !== 1 ? 's' : ''}</td>
+        <td style="text-align:center">${fmtR(x.rate)}</td>
+        <td style="text-align:center">${x.pl && x.pl.price != null ? 'USD ' + Number(x.pl.price).toLocaleString('es-AR') : '—'}</td>
+        <td style="text-align:center">${x.pl ? (avail(x.pl) > 0 ? `<span style="color:var(--green-text);font-weight:600">${fmtN(avail(x.pl))}</span>` : '<span style="color:var(--text3)">0</span>') : '<span style="color:var(--text3)">—</span>'}</td>
+      </tr>`).join('')}</tbody></table></div>`
+    : `<div style="font-size:12px;color:var(--text3);padding:6px 0">No hay modelos que vendan otros distys${hasPL ? ' y estén disponibles' : ''} que este disty no trabaje.</div>`;
+
+  return `<div style="margin:22px 0 8px"><div style="font-size:13px;font-weight:700;color:var(--text)"><i class="ti ti-sparkles" style="font-size:15px;vertical-align:-2px;margin-right:5px;color:var(--brand-text)"></i>Para ofrecerle</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:2px">Modelos que este disty no vende, no tiene en stock ni en camino, pero sí venden otros distys${hasPL ? ' y hay disponibles en la lista de precios (Miami + Bonded)' : ''}. Primero los que venden más distys.</div></div>` + body;
+}
+
 // Ítems con cantidad de una orden: la invoice (lo efectivamente embarcado) manda sobre la PI.
 // No se suman las dos fuentes porque son el mismo embarque (se contaría doble).
 function _piTransitQtyItems(pi) {
@@ -6763,7 +6803,7 @@ function _renderSemaforoTransitView(wrap) {
   </div>`);
 
   if(!rows.length) {
-    wrap.innerHTML = SF_TRANSIT_CSS + header + `<div class="empty-state"><i class="ti ti-ship"></i><p>No hay mercadería en tránsito ${single ? 'para ' + esc(SF_DIST_LABELS[keys[0]]) : 'en este momento'}.</p></div>`;
+    wrap.innerHTML = SF_TRANSIT_CSS + header + `<div class="empty-state"><i class="ti ti-ship"></i><p>No hay mercadería en tránsito ${single ? 'para ' + esc(SF_DIST_LABELS[keys[0]]) : 'en este momento'}.</p></div>` + (single ? _buildTransitOffer(keys[0], models) : '');
     return;
   }
 
@@ -6844,7 +6884,7 @@ function _renderSemaforoTransitView(wrap) {
     <b>Embarques sin detalle de productos:</b> ${noDetail.map(x => `${esc(x.pi.name)} (${esc(SF_DIST_SHORT[x.dk] || x.dk)}${x.pi.shipmentType ? ' · ' + (SHIP[x.pi.shipmentType] || x.pi.shipmentType) : ''}${x.eta ? ' · llega ' + fmtD(x.eta) : ''})`).join(' · ')}
   </div>` : '';
 
-  wrap.innerHTML = SF_TRANSIT_CSS + header + cards + table + noDetailHtml;
+  wrap.innerHTML = SF_TRANSIT_CSS + header + cards + table + noDetailHtml + (single ? _buildTransitOffer(keys[0], models) : '');
 }
 
 function renderSemaforoTab() {
