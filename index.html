@@ -1640,7 +1640,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '07.10.26.7';
+const APP_VERSION = '07.10.26.8';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -6681,84 +6681,16 @@ let _sfTransitDist = 'all'; // 'all' | key de distribuidor
 function setSemaforoTransitView(on) { _sfTransitView = !!on; renderSemaforoTab(); }
 function setSemaforoTransitDist(dk) { _sfTransitDist = dk; renderSemaforoTab(); }
 
-// Para un disty: qué reponer (modelos que vende con poca cobertura contando stock + tránsito)
-// y qué modelos no trabaja pero venden otros distys y hay disponibles en la lista de precios.
-function _buildTransitOpportunities(dk, transitModels) {
-  const { products } = buildSugeridosData();
-  const trQty = key => transitModels.get(key)?.byDist[dk]?.qty || 0;
-  const plByKey = new Map();
-  (priceList?.products || []).forEach(p => {
-    if(p.isSubSection) return;
-    const k = extractMSIModelKey(p.desc || p.code || '');
-    if(k && !plByKey.has(k)) plByKey.set(k, p);
-  });
-  const hasPL = plByKey.size > 0;
-  const avail = p => p ? (Number(p.miamiStock) || 0) + (Number(p.bondedStock) || 0) : null;
-  const fmtN = n => Math.round(n).toLocaleString('es-AR');
-  const fmtR = n => n >= 10 ? fmtN(n) : n.toFixed(1).replace('.', ',');
-  const priceCell = p => p && p.price != null ? `USD ${Number(p.price).toLocaleString('es-AR')}` : '—';
-  const availCell = p => {
-    if(!p) return '<span style="color:var(--text3)">—</span>';
-    const a = avail(p);
-    return a > 0 ? `<span style="color:var(--green-text);font-weight:600">${fmtN(a)}</span>` : '<span style="color:var(--text3)">0</span>';
-  };
-  const nameOf = p => semaforoDisplayName(p.description, p.category) || p.description;
-
-  const repo = products.filter(p => (p.distWeekly[dk] || 0) > 0).map(p => {
-    const rate = p.distWeekly[dk], stock = p.distStock[dk] || 0, tr = trQty(p.key);
-    return { p, rate, stock, tr, cover: (stock + tr) / rate * 7,
-             sug: Math.max(0, Math.ceil(rate * SG_COVERAGE_DAYS / 7) - stock - tr), pl: plByKey.get(p.key) };
-  }).filter(x => x.sug > 0)
-    .sort((a, b) => a.cover - b.cover || b.sug - a.sug);
-
-  const others = SF_DIST_KEYS.filter(d => d !== dk);
-  const nuevos = products.filter(p => !(p.distWeekly[dk] > 0) && !(p.distStock[dk] > 0) && !trQty(p.key)).map(p => {
-    const rate = others.reduce((s, d) => s + (p.distWeekly[d] || 0), 0);
-    return { p, rate, nDist: others.filter(d => (p.distWeekly[d] || 0) > 0).length, pl: plByKey.get(p.key) };
-  }).filter(x => x.rate > 0 && (!hasPL || avail(x.pl) > 0))
-    .sort((a, b) => b.nDist - a.nDist || b.rate - a.rate)
-    .slice(0, 30);
-
-  const th = t => `<th class="sf-dist-head">${t}</th>`;
-  const repoHtml = repo.length ? `<div class="sf-wrap"><table class="sf-table">
-      <thead><tr><th class="sf-th-model">MODELO</th>${th('VENTA / SEM')}${th('STOCK')}${th('EN CAMINO')}${th('COBERTURA')}${th('SUGERIDO')}${th('PRECIO LISTA')}${th('DISPONIBLE MSI')}</tr></thead>
-      <tbody>${repo.map((x, i) => `<tr class="${i % 2 ? 'sf-alt' : ''}">
-        <td class="sf-model">${esc(nameOf(x.p))}</td>
-        <td style="text-align:center">${fmtR(x.rate)}</td>
-        <td style="text-align:center">${fmtN(x.stock)}</td>
-        <td style="text-align:center">${x.tr ? fmtN(x.tr) : '—'}</td>
-        <td style="text-align:center;${x.cover < 7 ? 'color:var(--red-text);font-weight:700' : x.cover < 15 ? 'color:var(--amber-text);font-weight:600' : ''}">${Math.round(x.cover)} días</td>
-        <td style="text-align:center;font-weight:700">${fmtN(x.sug)}</td>
-        <td style="text-align:center">${priceCell(x.pl)}</td>
-        <td style="text-align:center">${availCell(x.pl)}</td>
-      </tr>`).join('')}</tbody></table></div>`
-    : `<div style="font-size:12px;color:var(--text3);padding:6px 0">Con lo que tiene en stock y en camino cubre al menos ${SG_COVERAGE_DAYS} días de venta en todos los modelos que trabaja.</div>`;
-
-  const nuevosHtml = nuevos.length ? `<div class="sf-wrap"><table class="sf-table">
-      <thead><tr><th class="sf-th-model">MODELO</th>${th('LO VENDEN')}${th('VENTA / SEM (OTROS)')}${th('PRECIO LISTA')}${th('DISPONIBLE MSI')}</tr></thead>
-      <tbody>${nuevos.map((x, i) => `<tr class="${i % 2 ? 'sf-alt' : ''}">
-        <td class="sf-model">${esc(nameOf(x.p))}</td>
-        <td style="text-align:center">${x.nDist} disty${x.nDist !== 1 ? 's' : ''}</td>
-        <td style="text-align:center">${fmtR(x.rate)}</td>
-        <td style="text-align:center">${priceCell(x.pl)}</td>
-        <td style="text-align:center">${availCell(x.pl)}</td>
-      </tr>`).join('')}</tbody></table></div>`
-    : `<div style="font-size:12px;color:var(--text3);padding:6px 0">No hay modelos que vendan otros distys${hasPL ? ' y estén disponibles' : ''} que este disty no trabaje.</div>`;
-
-  const title = (icon, txt, sub) => `<div style="margin:22px 0 8px"><div style="font-size:13px;font-weight:700;color:var(--text)"><i class="ti ti-${icon}" style="font-size:15px;vertical-align:-2px;margin-right:5px;color:var(--brand-text)"></i>${txt}</div><div style="font-size:11px;color:var(--text3);margin-top:2px">${sub}</div></div>`;
-  return title('refresh-alert', 'Para reponer', `Modelos que vende y que, contando stock + lo que tiene en camino, no le alcanzan para ${SG_COVERAGE_DAYS} días. Sugerido = venta de ${SG_COVERAGE_DAYS} días − stock − en camino.`) + repoHtml
-       + title('sparkles', 'Para ofrecerle (no los trabaja)', `Modelos que este disty no vende, no tiene en stock ni en camino, pero sí venden otros distys${hasPL ? ' y hay disponibles en la lista de precios (Miami + Bonded)' : ''}. Primero los que venden más distys.`) + nuevosHtml;
-}
-
 // Ítems con cantidad de una orden: la invoice (lo efectivamente embarcado) manda sobre la PI.
 // No se suman las dos fuentes porque son el mismo embarque (se contaría doble).
 function _piTransitQtyItems(pi) {
   const name = li => li.marketingName || li.model || li.itemCode || '';
   const inv = (pi.invoiceItems || []).filter(li => name(li) && (li.qtyShipped || 0) > 0);
-  if(inv.length) return inv.map(li => ({ desc: name(li), qty: li.qtyShipped, category: li.category || '' }));
+  const price = li => li.unitPrice ? Math.abs(Number(li.unitPrice)) || null : null;
+  if(inv.length) return inv.map(li => ({ desc: name(li), qty: li.qtyShipped, price: price(li), category: li.category || '' }));
   const lines = (pi.lineItems || []).filter(li => name(li));
-  if(lines.length) return lines.map(li => ({ desc: name(li), qty: li.ordered || li.qtyShipped || 0, category: li.category || '' }));
-  return (pi.invoiceItems || []).filter(li => name(li)).map(li => ({ desc: name(li), qty: 0, category: li.category || '' }));
+  if(lines.length) return lines.map(li => ({ desc: name(li), qty: li.ordered || li.qtyShipped || 0, price: price(li), category: li.category || '' }));
+  return (pi.invoiceItems || []).filter(li => name(li)).map(li => ({ desc: name(li), qty: 0, price: price(li), category: li.category || '' }));
 }
 
 const SF_TRANSIT_CSS = `<style>
@@ -6786,6 +6718,7 @@ function _renderSemaforoTransitView(wrap) {
   const models = new Map();
   const distTot = {}; keys.forEach(dk => distTot[dk] = { units: 0, pis: 0, nextEta: null });
   const noDetail = [];
+  const lines = []; // una fila por modelo × orden (vista de un solo disty)
   rows.forEach(({ pi, dk }) => {
     const eta = _piTransitExpiresAt(pi);
     distTot[dk].pis++;
@@ -6808,12 +6741,13 @@ function _renderSemaforoTransitView(wrap) {
       if(eta) c.etas.push(eta);
       if(!c.pis.includes(pi.name)) c.pis.push(pi.name);
       distTot[dk].units += it.qty || 0;
+      lines.push({ key: k, qty: it.qty || 0, price: it.price, pi, eta });
     });
   });
 
   const catOrder = [...SF_CAT_ORDER, 'other'];
-  const list = [...models.values()]
-    .map(m => ({ ...m, name: semaforoDisplayName(m.desc, m.category) || m.desc, total: keys.reduce((s, dk) => s + (m.byDist[dk]?.qty || 0), 0) }))
+  const list = [...models.entries()]
+    .map(([key, m]) => ({ ...m, key, name: semaforoDisplayName(m.desc, m.category) || m.desc, total: keys.reduce((s, dk) => s + (m.byDist[dk]?.qty || 0), 0) }))
     .sort((a, b) => (catOrder.indexOf(a.category) - catOrder.indexOf(b.category)) || (b.total - a.total) || a.name.localeCompare(b.name));
   const grandTotal = keys.reduce((s, dk) => s + distTot[dk].units, 0);
 
@@ -6828,11 +6762,8 @@ function _renderSemaforoTransitView(wrap) {
     }).join('')}
   </div>`);
 
-  // Solo se calcula con un disty elegido (no para el rol distribuidor: mira ventas de otros distys)
-  const opportunities = () => single ? _buildTransitOpportunities(keys[0], models) : '';
-
   if(!rows.length) {
-    wrap.innerHTML = SF_TRANSIT_CSS + header + `<div class="empty-state"><i class="ti ti-ship"></i><p>No hay mercadería en tránsito ${single ? 'para ' + esc(SF_DIST_LABELS[keys[0]]) : 'en este momento'}.</p></div>` + opportunities();
+    wrap.innerHTML = SF_TRANSIT_CSS + header + `<div class="empty-state"><i class="ti ti-ship"></i><p>No hay mercadería en tránsito ${single ? 'para ' + esc(SF_DIST_LABELS[keys[0]]) : 'en este momento'}.</p></div>`;
     return;
   }
 
@@ -6863,16 +6794,57 @@ function _renderSemaforoTransitView(wrap) {
     alt = !alt;
   });
 
-  const table = `<div class="sf-wrap"><table class="sf-table">
+  let table = `<div class="sf-wrap"><table class="sf-table">
     <thead><tr><th class="sf-th-model">MODELO</th>${keys.map(dk => `<th class="sf-dist-head">${esc(SF_DIST_LABELS[dk] || dk)}</th>`).join('')}${keys.length > 1 ? '<th class="sf-dist-head">TOTAL</th>' : ''}</tr></thead>
     <tbody>${body}</tbody></table></div>
     <div style="font-size:11px;color:var(--text3);margin-top:8px">Cantidades de la invoice (o de la PI si todavía no hay invoice). Debajo de cada cantidad, la llegada estimada (inicio del tránsito + días según tipo de embarque). "?" = la orden no trae cantidad para ese modelo. Pasá el mouse para ver las órdenes.</div>`;
+
+  // Un solo disty (elegido o rol distribuidor): detalle por orden con precio facturado y disponible MSI
+  if(keys.length === 1) {
+    const plByKey = new Map();
+    (priceList?.products || []).forEach(p => {
+      if(p.isSubSection) return;
+      const k = extractMSIModelKey(p.desc || p.code || '');
+      if(k && !plByKey.has(k)) plByKey.set(k, p);
+    });
+    const availCell = key => {
+      const p = plByKey.get(key);
+      if(!p) return '<span style="color:var(--text3)">—</span>';
+      const n = (Number(p.miamiStock) || 0) + (Number(p.bondedStock) || 0);
+      return n > 0 ? `<span style="color:var(--green-text);font-weight:600">${n.toLocaleString('es-AR')}</span>` : '<span style="color:var(--text3)">0</span>';
+    };
+    const byModel = new Map(list.map((m, i) => [m, i]));
+    const modelOf = new Map(list.map(m => [m.key, m]));
+    const sorted = lines.filter(l => modelOf.has(l.key))
+      .sort((x, y) => byModel.get(modelOf.get(x.key)) - byModel.get(modelOf.get(y.key)) || ((x.eta?.getTime() || Infinity) - (y.eta?.getTime() || Infinity)));
+    let b1 = '', cat1 = null, alt1 = false;
+    sorted.forEach(l => {
+      const m = modelOf.get(l.key);
+      if(m.category !== cat1) {
+        cat1 = m.category; alt1 = false;
+        b1 += `<tr class="sf-cat-row"><td colspan="6">${esc(SF_CAT_LABELS[m.category] || (m.category === 'other' ? 'OTROS' : m.category.toUpperCase()))}</td></tr>`;
+      }
+      b1 += `<tr class="${alt1 ? 'sf-alt' : ''}">
+        <td class="sf-model">${esc(m.name)}</td>
+        <td style="text-align:center;font-weight:700">${l.qty ? l.qty.toLocaleString('es-AR') : '?'}</td>
+        <td style="text-align:center">${l.price ? 'USD ' + l.price.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</td>
+        <td style="text-align:center">${esc(l.pi.name || '—')}${l.pi.invoiceNo ? `<div style="font-size:10px;color:var(--text3)">Inv #${esc(l.pi.invoiceNo)}</div>` : ''}</td>
+        <td style="text-align:center">${fmtD(l.eta)}${l.pi.shipmentType ? `<div style="font-size:10px;color:var(--text3)">${SHIP[l.pi.shipmentType] || esc(l.pi.shipmentType)}</div>` : ''}</td>
+        <td style="text-align:center">${availCell(l.key)}</td>
+      </tr>`;
+      alt1 = !alt1;
+    });
+    table = `<div class="sf-wrap"><table class="sf-table">
+      <thead><tr><th class="sf-th-model">MODELO</th><th class="sf-dist-head">CANTIDAD</th><th class="sf-dist-head">PRECIO FACTURADO</th><th class="sf-dist-head">ORDEN</th><th class="sf-dist-head">LLEGADA EST.</th><th class="sf-dist-head">DISPONIBLE MSI</th></tr></thead>
+      <tbody>${b1}</tbody></table></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">Cantidad y precio unitario de la invoice (o de la PI si todavía no hay invoice). Llegada estimada = inicio del tránsito + días según tipo de embarque. Disponible MSI = stock Miami + Bonded de la lista de precios.</div>`;
+  }
 
   const noDetailHtml = noDetail.length ? `<div style="margin-top:14px;font-size:12px;color:var(--text2)">
     <b>Embarques sin detalle de productos:</b> ${noDetail.map(x => `${esc(x.pi.name)} (${esc(SF_DIST_SHORT[x.dk] || x.dk)}${x.pi.shipmentType ? ' · ' + (SHIP[x.pi.shipmentType] || x.pi.shipmentType) : ''}${x.eta ? ' · llega ' + fmtD(x.eta) : ''})`).join(' · ')}
   </div>` : '';
 
-  wrap.innerHTML = SF_TRANSIT_CSS + header + cards + (single ? `<div style="font-size:13px;font-weight:700;color:var(--text);margin:4px 0 8px"><i class="ti ti-ship" style="font-size:15px;vertical-align:-2px;margin-right:5px;color:#8a5c00"></i>En camino</div>` : '') + table + noDetailHtml + opportunities();
+  wrap.innerHTML = SF_TRANSIT_CSS + header + cards + table + noDetailHtml;
 }
 
 function renderSemaforoTab() {
