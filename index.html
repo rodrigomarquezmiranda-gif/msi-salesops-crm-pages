@@ -1624,7 +1624,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '06.10.26.5';
+const APP_VERSION = '07.10.26.1';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -4904,7 +4904,8 @@ const PRICE_KEYWORDS=['price','precio','usd','unit price','list price','p.list',
 function parsePriceVal(v) {
   if(v===null||v===undefined||v==='') return null;
   if(typeof v==='number') return isNaN(v)?null:v;
-  const m=String(v).match(/[\$]?\s*([0-9]+(?:[.,][0-9]*)?)/);
+  // Precios marcados como "103-> $113" (viejo -> nuevo): tomar el último tramo
+  const m=String(v).split(/-+\s*>|→|=>/).pop().match(/[\$]?\s*([0-9]+(?:[.,][0-9]*)?)/);
   return m ? parseFloat(m[1].replace(',','.')) : null;
 }
 function parseStockNum(v) {
