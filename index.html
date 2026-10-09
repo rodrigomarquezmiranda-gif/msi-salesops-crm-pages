@@ -202,6 +202,8 @@
   /* Solo admins */
   .admin-only { display: none !important; }
   body.is-admin .admin-only { display: flex !important; }
+  .admin-only-block { display: none !important; }
+  body.is-admin .admin-only-block { display: block !important; }
   /* Distribuidor: solo ve semaforo, sugeridos, pi, pricelist, share, trend (Top Movers de su disty) — el acceso real se valida en gotoTab vía DIST_TABS */
   /* Mi Participación: solo admin y distribuidor */
   #nav-share { display: none !important; }
@@ -470,6 +472,9 @@
         <i class="ti ti-tag" style="color:#4EAACC"></i> Lista de Precios
         <span id="nb-pricelist" style="display:none;background:#D08770;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:10px;margin-left:auto">●</span>
       </button>
+      <button class="nav-item" id="nav-pricetrend" onclick="gotoTab('pricetrend')">
+        <i class="ti ti-chart-line" style="color:#4EAACC"></i> Evolución de Precios
+      </button>
       <button class="nav-item" id="nav-salesprices" onclick="gotoTab('salesprices')">
         <i class="ti ti-currency-dollar" style="color:#5A9E6F"></i> Precios de Venta
         <span class="nav-count" id="nb-salesprices">0</span>
@@ -663,11 +668,15 @@
         <div id="stock-changelog-panel" style="margin-bottom:1.25rem"></div>
         <div id="pricelist-summary"></div>
         <div id="specs-panel"></div>
-        <div class="upload-zone" id="drop-zone-price" onclick="document.getElementById('file-input-price').click()" style="margin:1rem 0">
-          <i class="ti ti-cloud-upload"></i>
-          <p><b>Hacé click o arrastrá</b> la lista de precios (Excel o CSV)</p>
-          <div class="hint">La primera carga queda como base. Las siguientes se comparan automáticamente y te marco los productos nuevos y cambios de precio.</div>
-        </div>
+        <!-- La lista se actualiza sola (workflow diario desde Google Sheets); la carga manual queda como respaldo -->
+        <details class="admin-only-block" style="margin:12px 0 1rem">
+          <summary style="cursor:pointer;font-size:12px;color:var(--text3)"><i class="ti ti-upload" style="font-size:12px"></i> Carga manual de la lista (solo si falla la actualización automática)</summary>
+          <div class="upload-zone" id="drop-zone-price" onclick="document.getElementById('file-input-price').click()" style="margin-top:8px">
+            <i class="ti ti-cloud-upload"></i>
+            <p><b>Hacé click o arrastrá</b> la lista de precios (Excel o CSV)</p>
+            <div class="hint">Se compara contra la lista vigente y te marco los productos nuevos y cambios de precio antes de guardarla.</div>
+          </div>
+        </details>
         <input type="file" id="file-input-price" accept=".xlsx,.xls,.csv" style="display:none" />
         <div id="pricelist-diff"></div>
         <div class="field-row" id="pricelist-filter-bar" style="display:none;margin-bottom:1rem;align-items:center">
@@ -681,6 +690,13 @@
           <button class="btn" onclick="exportPriceListExcel()" style="white-space:nowrap;flex-shrink:0"><i class="ti ti-file-spreadsheet" style="font-size:14px"></i> Exportar Lista</button>
         </div>
         <div id="pricelist-table-wrap"></div>
+      </div>
+
+      <!-- EVOLUCIÓN DE PRECIOS (historial de la lista LATAM — price_history.json / salesops_price_history) -->
+      <div id="tab-pricetrend" class="tab-pane">
+        <div id="pricetrend-header"></div>
+        <div id="pricetrend-cats"></div>
+        <div id="pricetrend-models"></div>
       </div>
 
       <!-- PRECIOS DE VENTA (historial armado a partir de las PI) -->
@@ -1652,7 +1668,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '09.10.26.1';
+const APP_VERSION = '09.10.26.2';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -2751,8 +2767,8 @@ function parseDurationString(str) {
 }
 
 // ─── TAB NAV ──────────────────────────────────────────
-const TABS = ['dashboard','pi','rebates','pricelist','salesprices','rotation','trend','rotcompare','impact','clients','resellers-t1','resellers-t2','resellers-t3','catranking','clientcompare','imports','etailers','ar','mkt','ia','notificaciones','usuarios','semaforo','sugeridos','share','pbm','psucalc'];
-const TITLES = { dashboard:'Dashboard', pi:'Ordenes — Proforma Invoice', rebates:'Rebates: BER · SOR · SIR · PP', pricelist:'Lista de Precios', salesprices:'Precios de Venta', rotation:'Inventario/Ventas', trend:'Tendencia de Venta', rotcompare:'Comparador de Rotación', impact:'Impacto de Programa', clients:'Ranking de Clientes', 'resellers-t1':'Resellers T1', 'resellers-t2':'Resellers T2', 'resellers-t3':'Resellers T3', catranking:'Ranking por Categoría', clientcompare:'Comparador de Clientes', imports:'Análisis de Importaciones', etailers:'Etailers', ar:'Estado de Cuentas', mkt:'Marketing Budget', ia:'Analizar archivo con IA', notificaciones:'Notificaciones de Precios', usuarios:'Gestión de Usuarios', semaforo:'Semáforo de Stock', sugeridos:'Sugeridos de Compra', share:'Mi Participación', pbm:'Powered by MSI', psucalc:'Calculadora de Fuente' };
+const TABS = ['dashboard','pi','rebates','pricelist','pricetrend','salesprices','rotation','trend','rotcompare','impact','clients','resellers-t1','resellers-t2','resellers-t3','catranking','clientcompare','imports','etailers','ar','mkt','ia','notificaciones','usuarios','semaforo','sugeridos','share','pbm','psucalc'];
+const TITLES = { dashboard:'Dashboard', pi:'Ordenes — Proforma Invoice', rebates:'Rebates: BER · SOR · SIR · PP', pricelist:'Lista de Precios', pricetrend:'Evolución de Precios', salesprices:'Precios de Venta', rotation:'Inventario/Ventas', trend:'Tendencia de Venta', rotcompare:'Comparador de Rotación', impact:'Impacto de Programa', clients:'Ranking de Clientes', 'resellers-t1':'Resellers T1', 'resellers-t2':'Resellers T2', 'resellers-t3':'Resellers T3', catranking:'Ranking por Categoría', clientcompare:'Comparador de Clientes', imports:'Análisis de Importaciones', etailers:'Etailers', ar:'Estado de Cuentas', mkt:'Marketing Budget', ia:'Analizar archivo con IA', notificaciones:'Notificaciones de Precios', usuarios:'Gestión de Usuarios', semaforo:'Semáforo de Stock', sugeridos:'Sugeridos de Compra', share:'Mi Participación', pbm:'Powered by MSI', psucalc:'Calculadora de Fuente' };
 
 // Tabs restringidos por rol — la clase CSS solo oculta el botón, esto bloquea el acceso real
 const TAB_ROLES = { ia: ['admin','reader-pi'] };
@@ -2785,6 +2801,7 @@ function gotoTab(tab) {
   if(tab==='pi') { _piSearch=''; _piColShowAll={}; const inp=document.getElementById('pi-search-input'); if(inp) inp.value=''; }
   if(tab==='rebates') renderRebatesTable();
   if(tab==='pricelist') { renderPriceListView(); renderStockUpdatePanel(); }
+  if(tab==='pricetrend') renderPriceTrendTab();
   if(tab==='salesprices') renderSalesPriceHistory();
   if(tab==='rotation') { renderRotationTab(); renderRotationHistory(); }
   if(tab==='trend') renderTopMovers();
@@ -5139,7 +5156,7 @@ function renderPriceListView() {
   const diffBadge=hasChanges?` <span class="pill pill-amber" style="font-size:10px;vertical-align:middle">${diff.added.length} nuevos · ${diff.changed.length} cambios de precio</span>`:'';
   summary.innerHTML=`<div class="ai-box" style="margin-top:0">
     <div class="ai-box-header" style="color:var(--text)"><i class="ti ti-tag" style="color:var(--brand-text)"></i> Lista vigente${diffBadge}</div>
-    <div style="font-size:13px;color:var(--text2)">${priceList.products.filter(p=>!p.isSubSection).length} productos · Actualizada el ${priceList.updatedAt?new Date(priceList.updatedAt).toLocaleDateString('es-AR'):'-'} · Archivo: ${esc(priceList.sourceFile||'-')}</div>
+    <div style="font-size:13px;color:var(--text2)">${priceList.products.filter(p=>!p.isSubSection).length} productos · Actualizada el ${(priceList.updatedAt||priceList.capturedAt)?new Date(priceList.updatedAt||priceList.capturedAt).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'-'} · ${priceList.sourceFile?'Archivo: '+esc(priceList.sourceFile):'Actualización automática desde Google Sheets'}</div>
     ${priceList.prevSourceFile?`<div style="font-size:11px;color:var(--text3);margin-top:4px">Comparada contra: ${esc(priceList.prevSourceFile)}</div>`:''}
     <button class="btn btn-danger" style="margin-top:10px;font-size:11px;padding:4px 10px" onclick="resetPriceList()"><i class="ti ti-trash" style="font-size:12px"></i> Borrar lista</button>
   </div>`;
@@ -6029,7 +6046,7 @@ function renderSpecsPanel() {
   el.innerHTML = `<details class="ai-box" style="margin-top:12px"${_lastSpecUpload ? ' open' : ''}>
     <summary style="cursor:pointer;font-size:13px;color:var(--text);list-style:none;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
       <i class="ti ti-file-description" style="color:var(--brand-text);font-size:15px"></i><b>Fichas técnicas</b>
-      <span style="color:var(--text3);font-size:12px">${items.length ? `${items.length} cargadas · ${covered} de ${prods.length} productos de la lista con ficha · actualizadas el ${fmtD(productSpecs.updatedAt)}` : 'todavía no cargaste ninguna'}</span>
+      <span style="color:var(--text3);font-size:12px">${items.length ? `${items.length} cargadas · ${covered} de ${prods.length} productos de la lista con ficha · actualizadas el ${fmtD(productSpecs.updatedAt)}` : 'subí acá las listas por línea (Monitores, Fuentes, Gabinetes, Cooling…) para que el Quiz y LuckIA usen las specs reales'}</span>
       <i class="ti ti-chevron-down" style="margin-left:auto;color:var(--text3)"></i>
     </summary>
     <div style="margin-top:10px">
@@ -6065,6 +6082,250 @@ function openSpecsModalFromEl(el) {
     </tbody></table>
     <div style="font-size:11px;color:var(--text3);margin-top:8px">Fuente: ${esc(r.source || '-')}</div>`;
   openOverlay('modal-specs');
+}
+// ─── EVOLUCIÓN DE PRECIOS (historial de la lista LATAM) ───────────────────────
+// Datos: salesops_price_history (lo escribe scripts/price_history.js en el workflow diario;
+// respaldo: price_history.json servido junto a la app). Formato: { checks:[días con lista
+// leída], items:{ código:{ n, c, s:último día visto, p:[[día, precio], ...un punto por cambio] } } }
+let _phData = null, _phPeriod = 'all', _phCat = '', _phSearch = '', _phSel = null, _phSort = 'var_desc', _phOnlyActive = true;
+const PH_CAT_LABEL = { VGA:'Placas de Video', MB:'Motherboards', Monitor:'Monitores', PSU:'Fuentes', Chassis:'Gabinetes', Cooling:'Cooling', MiniPC:'Mini PC', SSD:'SSD', ARM:'Brazos de monitor', Accessories:'Accesorios', Bundle:'Bundles', Networking:'Networking', AI:'AI Solutions' };
+const PH_CAT_KEY = { VGA:'vga', MB:'motherboard', Monitor:'monitor', PSU:'psu', Chassis:'gabinete', Cooling:'cooling', MiniPC:'minipc', SSD:'ssd', ARM:'accesorios', Accessories:'accesorios', AI:'ai' };
+// La lista trae como categoría el título de la sub-sección ("OLED Monitors - Gaming", "PRO MNT 27\" Flat",
+// "Liquid Cooling", "CUBI"...): se agrupan en las líneas de producto
+function _phNormCat(c) {
+  const s = String(c || '');
+  const rules = [[/arm\b/i,'ARM'],[/monitor|mnt|pro max/i,'Monitor'],[/cool/i,'Cooling'],[/^vga$|graphic/i,'VGA'],[/^mb$|mother/i,'MB'],
+    [/psu|power supply|fuente/i,'PSU'],[/chassis|gabinete/i,'Chassis'],[/mini ?pc|cubi/i,'MiniPC'],[/ssd|storage/i,'SSD'],
+    [/ai solution|edgexpert/i,'AI'],[/power cord|accessor/i,'Accessories'],[/net ?working|router/i,'Networking'],[/bundle/i,'Bundle']];
+  const hit = rules.find(([re]) => re.test(s));
+  return hit ? hit[1] : (s || 'Otros');
+}
+const _phCatLabel = c => PH_CAT_LABEL[c] || c || 'Sin categoría';
+const _phCatColor = c => CATEGORY_COLOR[PH_CAT_KEY[c]] || CATEGORY_COLOR.other;
+const _phDayMs = d => Date.parse(d + 'T12:00:00');
+const _phFmtDay = d => { const [y,m,dd] = d.split('-'); return `${dd}/${m}/${y.slice(2)}`; };
+const _phPct = v => v == null || !isFinite(v) ? '—' : (v > 0 ? '+' : '') + v.toFixed(1) + '%';
+const _phPctColor = v => !v || Math.abs(v) < 0.05 ? 'var(--text3)' : v > 0 ? 'var(--red-text)' : 'var(--green-text)';
+// Precio vigente en un día: el último cambio en o antes de ese día (null si todavía no existía)
+function _phPriceAt(it, day) {
+  let v = null;
+  for(const [d, p] of it.p) { if(d <= day) v = p; else break; }
+  return v;
+}
+async function _phLoad() {
+  if(_phData) return _phData;
+  try { const raw = await IDB.get('salesops_price_history'); if(raw) _phData = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch(e) {}
+  if(!_phData) { try { const r = await fetch('./price_history.json', { cache:'no-store' }); if(r.ok) _phData = await r.json(); } catch(e) {} }
+  if(_phData && _phData.items) Object.values(_phData.items).forEach(it => { it.cat = _phNormCat(it.c); });
+  return _phData;
+}
+// Rango del período elegido: desde = primer día con lista leída dentro del período, hasta = última lectura
+function _phRange() {
+  const checks = (_phData.checks || []).slice().sort();
+  const end = checks[checks.length - 1];
+  let start = checks[0];
+  if(_phPeriod !== 'all') {
+    const from = new Date(_phDayMs(end) - Number(_phPeriod) * 86400e3).toISOString().slice(0,10);
+    start = checks.find(d => d >= from) || start;
+  }
+  return { start, end, checks: checks.filter(d => d >= start && d <= end) };
+}
+// Fila por modelo con la variación en el período. Los productos nuevos dentro del período
+// arrancan desde su primer precio (se marcan como "nuevo" y no entran al promedio de la categoría).
+function _phRows() {
+  const { start, end } = _phRange();
+  return Object.entries(_phData.items || {}).map(([code, it]) => {
+    const active = it.s === end;
+    const startPrice = _phPriceAt(it, start);
+    const firstInRange = it.p.find(([d]) => d >= start);
+    const base = startPrice != null ? startPrice : (firstInRange ? firstInRange[1] : null);
+    const last = _phPriceAt(it, end);
+    if(base == null || last == null) return null;
+    const changes = it.p.filter(([d]) => d > start && d <= end).length;
+    return { code, it, name: it.n, cat: it.cat, active, isNew: startPrice == null, base, last,
+             varPct: base ? (last - base) / base * 100 : 0, changes };
+  }).filter(Boolean);
+}
+async function renderPriceTrendTab() {
+  const head = document.getElementById('pricetrend-header');
+  if(!_phData) head.innerHTML = '<div class="loading-row">Cargando historial de precios...</div>';
+  await _phLoad();
+  if(!_phData || !_phData.items) {
+    head.innerHTML = `<div class="empty-state"><i class="ti ti-chart-line"></i><p>Todavía no hay historial de precios. Se arma solo con la actualización automática de la lista (lunes a viernes 15hs).</p></div>`;
+    document.getElementById('pricetrend-cats').innerHTML = '';
+    document.getElementById('pricetrend-models').innerHTML = '';
+    return;
+  }
+  const { start, end, checks } = _phRange();
+  const pill = (v, l) => `<button class="filter-pill${_phPeriod === v ? ' active' : ''}" onclick="_phPeriod='${v}';_phSel=null;renderPriceTrendTab()">${l}</button>`;
+  // Huecos sin lecturas (>10 días): un cambio de precio dentro del hueco figura con la fecha de la lectura siguiente
+  const gaps = checks.slice(1).map((d, i) => [checks[i], d]).filter(([a, b]) => _phDayMs(b) - _phDayMs(a) > 10 * 86400e3);
+  const gapNote = gaps.length ? `<div style="font-size:11px;color:var(--text3);margin-top:4px"><i class="ti ti-info-circle" style="font-size:12px"></i> Sin lecturas de la lista ${gaps.map(([a,b]) => `entre el ${_phFmtDay(a)} y el ${_phFmtDay(b)}`).join(', ')}: un cambio de precio en ese lapso figura con la fecha de la lectura siguiente.</div>` : '';
+  head.innerHTML = `<div class="ai-box" style="margin-top:0">
+      <div class="ai-box-header" style="color:var(--text)"><i class="ti ti-chart-line" style="color:var(--brand-text)"></i> Evolución de la lista de precios</div>
+      <div style="font-size:13px;color:var(--text2)">Precio de lista LATAM (FOB Miami) de cada modelo a lo largo del tiempo. Historial desde el ${_phFmtDay(_phData.checks[0])}; se actualiza solo con cada lectura de la lista (lunes a viernes 15hs). Mostrando del <b>${_phFmtDay(start)}</b> al <b>${_phFmtDay(end)}</b> (${checks.length} lecturas).</div>${gapNote}
+    </div>
+    <div class="export-row" style="margin:12px 0">${pill('all','Todo el historial')}${pill('90','Últimos 90 días')}${pill('30','Últimos 30 días')}</div>`;
+  _phRenderCats();
+  _phRenderModels();
+}
+// Índice por categoría (base 100 al inicio del período) + tabla resumen
+function _phRenderCats() {
+  const { start, checks } = _phRange();
+  const rows = _phRows().filter(r => r.active && !r.isNew);
+  const byCat = {};
+  rows.forEach(r => (byCat[r.cat] = byCat[r.cat] || []).push(r));
+  const cats = Object.keys(byCat).sort((a,b) => byCat[b].length - byCat[a].length);
+  const series = cats.filter(c => byCat[c].length >= 3).map(c => ({
+    label: _phCatLabel(c), color: _phCatColor(c), cat: c,
+    points: checks.map(d => {
+      const vals = byCat[c].map(r => { const p = _phPriceAt(r.it, d); return p != null ? p / r.base * 100 : null; }).filter(v => v != null);
+      return [d, vals.length ? vals.reduce((s,v) => s + v, 0) / vals.length : 100];
+    })
+  }));
+  const tableRows = cats.map(c => {
+    const list = byCat[c];
+    const avg = list.reduce((s,r) => s + r.varPct, 0) / list.length;
+    const up = list.filter(r => r.varPct > 0.05).length, down = list.filter(r => r.varPct < -0.05).length;
+    const top = list.slice().sort((a,b) => Math.abs(b.varPct) - Math.abs(a.varPct))[0];
+    const sel = _phCat === c;
+    return `<tr style="cursor:pointer${sel ? ';background:var(--bg2)' : ''}" onclick="_phCat=_phCat==='${esc(c)}'?'':'${esc(c)}';_phSel=null;_phRenderModels();_phRenderCats()">
+      <td><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${_phCatColor(c)};margin-right:6px"></span>${esc(_phCatLabel(c))}</td>
+      <td style="text-align:center">${list.length}</td>
+      <td style="text-align:center;color:var(--red-text)">${up || '—'}</td>
+      <td style="text-align:center;color:var(--green-text)">${down || '—'}</td>
+      <td style="text-align:right;font-weight:600;color:${_phPctColor(avg)}">${_phPct(avg)}</td>
+      <td style="font-size:12px;color:var(--text2)">${top && Math.abs(top.varPct) >= 0.05 ? `${esc(top.name)} <span style="color:${_phPctColor(top.varPct)}">${_phPct(top.varPct)}</span>` : '—'}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('pricetrend-cats').innerHTML = `<div class="ai-box">
+    <div class="ai-box-header" style="color:var(--text)"><i class="ti ti-category" style="color:var(--brand-text)"></i> Por categoría — índice base 100 al ${_phFmtDay(start)}</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:8px">Promedio de la variación de los modelos que estaban en la lista al inicio del período y siguen hoy. 110 = en promedio la categoría está 10% más cara. Click en una categoría para ver sus modelos.</div>
+    ${series.length ? _phChart(series, { start, end: checks[checks.length-1], fmt: v => v.toFixed(0), baseLine: 100 }) : ''}
+    <div class="table-scroll" style="margin-top:10px"><table class="data-table">
+      <thead><tr><th>Categoría</th><th style="text-align:center">Modelos</th><th style="text-align:center">Subieron</th><th style="text-align:center">Bajaron</th><th style="text-align:right">Variación prom.</th><th>Mayor cambio</th></tr></thead>
+      <tbody>${tableRows || '<tr><td colspan="6" style="text-align:center;color:var(--text3)">Sin datos en este período.</td></tr>'}</tbody>
+    </table></div>
+  </div>`;
+}
+// Gráfico escalonado (el precio de lista se mantiene hasta el próximo cambio). series: [{label,color,points:[[día,valor]]}]
+function _phChart(series, { start, end, fmt, baseLine, height = 230 }) {
+  const W = 760, H = height, padL = 58, padR = 14, padT = 12, padB = 26;
+  const t0 = _phDayMs(start), t1 = Math.max(_phDayMs(end), t0 + 86400e3);
+  const vals = series.flatMap(s => s.points.map(p => p[1])).concat(baseLine != null ? [baseLine] : []);
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if(hi - lo < 1e-9) { lo -= 1; hi += 1; }
+  const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+  const x = d => padL + (_phDayMs(d) - t0) / (t1 - t0) * (W - padL - padR);
+  const y = v => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB);
+  const grid = [0,1,2,3].map(i => { const v = lo + (hi - lo) * i / 3; return `<line x1="${padL}" x2="${W-padR}" y1="${y(v)}" y2="${y(v)}" stroke="var(--border)" stroke-width="0.5"/><text x="${padL-6}" y="${y(v)+3}" text-anchor="end" font-size="10" fill="var(--text3)">${esc(fmt(v))}</text>`; }).join('');
+  // Marcas de mes en el eje X
+  const months = []; const dt = new Date(t0); dt.setUTCDate(1); dt.setUTCMonth(dt.getUTCMonth() + 1);
+  while(dt.getTime() <= t1) { months.push(dt.toISOString().slice(0,10)); dt.setUTCMonth(dt.getUTCMonth() + 1); }
+  const monthNames = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  const xTicks = [start, ...months].map(d => `<text x="${x(d)}" y="${H-8}" text-anchor="${d === start ? 'start' : 'middle'}" font-size="10" fill="var(--text3)">${d === start ? _phFmtDay(d) : monthNames[Number(d.slice(5,7)) - 1]}</text>`).join('');
+  const base = baseLine != null ? `<line x1="${padL}" x2="${W-padR}" y1="${y(baseLine)}" y2="${y(baseLine)}" stroke="var(--text3)" stroke-dasharray="3 3" stroke-width="0.8"/>` : '';
+  const paths = series.map(s => {
+    const pts = s.points.filter(([d]) => d >= start && d <= end);
+    if(!pts.length) return '';
+    let dPath = `M${x(pts[0][0])},${y(pts[0][1])}`;
+    for(let i = 1; i < pts.length; i++) dPath += ` H${x(pts[i][0])} V${y(pts[i][1])}`;
+    dPath += ` H${x(end)}`;
+    const dots = pts.map(([d,v], i) => (i === 0 || v !== pts[i-1][1]) ? `<circle cx="${x(d)}" cy="${y(v)}" r="3" fill="${s.color}"><title>${esc(s.label)} — ${_phFmtDay(d)}: ${esc(fmt(v))}</title></circle>` : '').join('');
+    return `<path d="${dPath}" fill="none" stroke="${s.color}" stroke-width="2"/>${dots}`;
+  }).join('');
+  const legend = series.length > 1 ? `<div style="display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11px;color:var(--text2);margin-top:4px">${series.map(s => `<span><span style="display:inline-block;width:10px;height:3px;background:${s.color};vertical-align:middle;margin-right:4px"></span>${esc(s.label)}</span>`).join('')}</div>` : '';
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block">${grid}${base}${paths}${xTicks}</svg>${legend}`;
+}
+// Mini gráfico para la tabla de modelos
+function _phSpark(it, start, end) {
+  const pts = it.p.filter(([d]) => d <= end);
+  const sp = _phPriceAt(it, start);
+  const series = (sp != null ? [[start, sp]] : []).concat(pts.filter(([d]) => d > start));
+  if(series.length < 2) return '';
+  const W = 80, H = 20, vs = series.map(p => p[1]);
+  let lo = Math.min(...vs), hi = Math.max(...vs); if(hi === lo) { hi += 1; lo -= 1; }
+  const t0 = _phDayMs(series[0][0]), t1 = Math.max(_phDayMs(end), t0 + 1);
+  const x = d => (_phDayMs(d) - t0) / (t1 - t0) * W, y = v => 2 + (1 - (v - lo) / (hi - lo)) * (H - 4);
+  let d = `M${x(series[0][0])},${y(series[0][1])}`;
+  for(let i = 1; i < series.length; i++) d += ` H${x(series[i][0])} V${y(series[i][1])}`;
+  d += ` H${W}`;
+  const up = series[series.length-1][1] > series[0][1];
+  return `<svg width="${W}" height="${H}" style="display:block"><path d="${d}" fill="none" stroke="${up ? 'var(--red-text)' : 'var(--green-text)'}" stroke-width="1.5"/></svg>`;
+}
+function _phRenderModels() {
+  const el = document.getElementById('pricetrend-models');
+  const cats = [...new Set(Object.values(_phData.items).map(it => it.cat))].sort((a,b) => _phCatLabel(a).localeCompare(_phCatLabel(b)));
+  const chip = (c, l) => `<button class="filter-pill${_phCat === c ? ' active' : ''}" onclick="_phCat='${esc(c)}';_phSel=null;_phRenderModels();_phRenderCats()">${esc(l)}</button>`;
+  el.innerHTML = `<div class="ai-box">
+    <div class="ai-box-header" style="color:var(--text)"><i class="ti ti-list-search" style="color:var(--brand-text)"></i> Por modelo</div>
+    <div class="export-row" style="margin-bottom:8px;flex-wrap:wrap">${chip('', 'Todas')}${cats.map(c => chip(c, _phCatLabel(c))).join('')}</div>
+    <div class="field-row" style="margin-bottom:10px;align-items:center;flex-wrap:wrap">
+      <input type="text" id="ph-search" value="${esc(_phSearch)}" placeholder="Buscar modelo o código..." oninput="_phSearch=this.value;_phFilterModels()" style="flex:1;min-width:180px;padding:8px 10px;border:0.5px solid var(--border2);border-radius:8px;background:var(--bg2);color:var(--text);font-size:13px" />
+      <select onchange="_phSort=this.value;_phFilterModels()" style="padding:8px 10px;border:0.5px solid var(--border2);border-radius:8px;background:var(--bg2);color:var(--text);font-size:13px">
+        <option value="var_desc"${_phSort==='var_desc'?' selected':''}>Más aumentaron</option>
+        <option value="var_asc"${_phSort==='var_asc'?' selected':''}>Más bajaron</option>
+        <option value="changes"${_phSort==='changes'?' selected':''}>Más cambios de precio</option>
+        <option value="name"${_phSort==='name'?' selected':''}>Nombre</option>
+      </select>
+      <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:5px;white-space:nowrap"><input type="checkbox" ${_phOnlyActive ? 'checked' : ''} onchange="_phOnlyActive=this.checked;_phFilterModels()" /> Solo vigentes en la lista</label>
+    </div>
+    <div id="ph-detail"></div>
+    <div class="table-scroll" style="max-height:520px;overflow-y:auto"><table class="data-table">
+      <thead><tr><th>Modelo</th><th>Categoría</th><th style="text-align:right">Precio inicial</th><th style="text-align:right">Precio actual</th><th style="text-align:right">Variación</th><th style="text-align:center">Cambios</th><th>Evolución</th></tr></thead>
+      <tbody id="ph-tbody"></tbody>
+    </table></div>
+    <div id="ph-count" style="font-size:11px;color:var(--text3);margin-top:6px"></div>
+  </div>`;
+  _phFilterModels();
+}
+// Solo re-renderiza el tbody (el buscador llama esto en cada tecla)
+function _phFilterModels() {
+  const { start, end } = _phRange();
+  const q = _phSearch.trim().toUpperCase();
+  let rows = _phRows().filter(r => (!_phCat || r.cat === _phCat) && (!_phOnlyActive || r.active) && (!q || (r.name + ' ' + r.code).toUpperCase().includes(q)));
+  const cmp = { var_desc: (a,b) => b.varPct - a.varPct, var_asc: (a,b) => a.varPct - b.varPct, changes: (a,b) => b.changes - a.changes || b.varPct - a.varPct, name: (a,b) => a.name.localeCompare(b.name) }[_phSort];
+  rows.sort(cmp);
+  document.getElementById('ph-tbody').innerHTML = rows.slice(0, 300).map(r => `<tr style="cursor:pointer${_phSel === r.code ? ';background:var(--bg2)' : ''}" onclick="_phSelectModel('${esc(r.code)}')">
+      <td>${esc(r.name)}${r.isNew ? ' <span style="font-size:10px;color:var(--brand-text)">nuevo</span>' : ''}${!r.active ? ' <span style="font-size:10px;color:var(--text3)">ya no está en la lista</span>' : ''}</td>
+      <td style="font-size:12px;color:var(--text2)">${esc(_phCatLabel(r.cat))}</td>
+      <td style="text-align:right">${fmtUSD(r.base)}</td>
+      <td style="text-align:right;font-weight:600">${fmtUSD(r.last)}</td>
+      <td style="text-align:right;font-weight:600;color:${_phPctColor(r.varPct)}">${_phPct(r.varPct)}</td>
+      <td style="text-align:center;color:var(--text2)">${r.changes || '—'}</td>
+      <td>${_phSpark(r.it, start, end)}</td>
+    </tr>`).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:1.5rem">Sin modelos para mostrar.</td></tr>';
+  document.getElementById('ph-count').textContent = `${rows.length} modelos${rows.length > 300 ? ' (mostrando 300)' : ''}`;
+  _phRenderDetail();
+}
+function _phSelectModel(code) {
+  _phSel = _phSel === code ? null : code;
+  _phFilterModels();
+  if(_phSel) document.getElementById('ph-detail')?.scrollIntoView({ behavior:'smooth', block:'nearest' });
+}
+function _phRenderDetail() {
+  const el = document.getElementById('ph-detail');
+  if(!el) return;
+  const it = _phSel && _phData.items[_phSel];
+  if(!it) { el.innerHTML = ''; return; }
+  const { start, end } = _phRange();
+  const sp = _phPriceAt(it, start);
+  const pts = (sp != null ? [[start, sp]] : []).concat(it.p.filter(([d]) => d > start && d <= end));
+  const changes = it.p.filter(([d]) => d <= end).map(([d,p], i, arr) => {
+    const prev = i ? arr[i-1][1] : null;
+    return `<tr><td>${_phFmtDay(d)}</td><td style="text-align:right;font-weight:600">${fmtUSD(p)}</td><td style="text-align:right;color:${prev ? _phPctColor((p-prev)/prev*100) : 'var(--text3)'}">${prev ? _phPct((p-prev)/prev*100) : 'primer registro'}</td></tr>`;
+  }).reverse().join('');
+  el.innerHTML = `<div style="border:0.5px solid var(--border2);border-radius:var(--radius);padding:12px;margin-bottom:12px;background:var(--bg)">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:6px">
+      <div><b>${esc(it.n)}</b> <span style="font-size:11px;color:var(--text3);font-family:monospace">${esc(_phSel)}</span><div style="font-size:12px;color:var(--text3)">${esc(_phCatLabel(it.cat))}</div></div>
+      <button class="btn" style="font-size:11px;padding:3px 8px" onclick="_phSelectModel('${esc(_phSel)}')"><i class="ti ti-x" style="font-size:12px"></i></button>
+    </div>
+    ${pts.length ? _phChart([{ label: it.n, color: '#FF6600', points: pts }], { start: pts[0][0], end, fmt: v => 'USD ' + Math.round(v).toLocaleString('es-AR'), height: 200 }) : ''}
+    <div class="table-scroll" style="max-height:200px;overflow-y:auto;margin-top:8px"><table class="data-table" style="font-size:12px">
+      <thead><tr><th>Desde</th><th style="text-align:right">Precio de lista</th><th style="text-align:right">vs. anterior</th></tr></thead>
+      <tbody>${changes}</tbody>
+    </table></div>
+  </div>`;
 }
 const fileInputPrice = document.getElementById('file-input-price');
 const dropZonePrice = document.getElementById('drop-zone-price');
