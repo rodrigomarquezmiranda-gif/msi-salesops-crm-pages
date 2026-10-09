@@ -662,6 +662,7 @@
         <div id="stock-update-panel" style="margin-bottom:0"></div>
         <div id="stock-changelog-panel" style="margin-bottom:1.25rem"></div>
         <div id="pricelist-summary"></div>
+        <div id="specs-panel"></div>
         <div class="upload-zone" id="drop-zone-price" onclick="document.getElementById('file-input-price').click()" style="margin:1rem 0">
           <i class="ti ti-cloud-upload"></i>
           <p><b>Hacé click o arrastrá</b> la lista de precios (Excel o CSV)</p>
@@ -1492,6 +1493,17 @@
   </div>
 </div>
 
+<!-- MODAL: FICHA TÉCNICA (Lista de Precios) -->
+<div class="overlay" id="modal-specs">
+  <div class="modal" style="max-width:640px;width:95%">
+    <div class="modal-header">
+      <span class="modal-title" id="specs-modal-title"></span>
+      <button class="modal-close" onclick="closeOverlay('modal-specs')"><i class="ti ti-x"></i></button>
+    </div>
+    <div id="specs-modal-body" style="max-height:65vh;overflow-y:auto"></div>
+  </div>
+</div>
+
 <!-- MODAL: FIRMA DIGITAL DE PI -->
 <div class="overlay" id="modal-digital-sign">
   <div class="modal" style="max-width:440px">
@@ -1640,7 +1652,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '07.10.26.11';
+const APP_VERSION = '09.10.26.1';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -1657,6 +1669,8 @@ const fmtAmt = v => 'USD ' + Number(v).toLocaleString('es-AR', { maximumFraction
 
 let db = { pi:[], ber:[], sor:[], sir:[], pp:[], weeklyReports:[], imports:[], ar:[], mkt:[], resellers:{ t1:[], t2:[], t3:[] }, resellerTargets:{}, resellerManual:{} };
 let priceList = { updatedAt:null, sourceFile:null, products:[] };
+let productSpecs = { updatedAt:null, files:[], items:{} }; // fichas técnicas — ver "FICHAS TÉCNICAS" más abajo
+let _specIndexCache = null;
 let currentTab = 'dashboard';
 let currentFilter = { pi:'all' };
 let _piSearch = '';
@@ -1869,6 +1883,7 @@ async function loadDB() {
   try { const arRaw = await _idbGetYear('salesops_ar').catch(()=>null); if(arRaw) db.ar = JSON.parse(arRaw); } catch(e) {}
   try { const mktRaw = await _idbGetYear('salesops_mkt').catch(()=>null); if(mktRaw) db.mkt = JSON.parse(mktRaw); } catch(e) {}
   try { const p = await IDB.get('salesops_pricelist'); if(p) priceList = JSON.parse(p); } catch(e) {}
+  try { const sp = await IDB.get('salesops_specs'); if(sp) { productSpecs = JSON.parse(sp); _specIndexCache = null; } } catch(e) {}
   if (!priceList.lastDiff) priceList.lastDiff = null;
   if (!priceList.prevSourceFile) priceList.prevSourceFile = null;
 }
@@ -2358,6 +2373,7 @@ const CRM_AI_SYSTEM_PROMPT = `Te llamás LuckIA, el asistente de datos del CRM d
 Respondé preguntas sobre compras de clientes, precios de venta, ranking de clientes y resellers T1/T2/T3 (revendedores agrupados por tier, con ventas por línea de producto y objetivos trimestrales) usando SIEMPRE las herramientas disponibles — nunca inventes cifras ni nombres que no vengan de una herramienta.
 Si el usuario pide un rango de fechas específico (ej. "la última semana") y la herramienta no encuentra nada en ESE rango puntual, antes de responder "no hay compras" volvé a llamar la misma herramienta SIN esa restricción de fecha (todo el historial) para ver si hay compras más viejas — y si las hay, contestá con eso y aclará que no fueron en el rango pedido sino antes (con la fecha real). Recién si tampoco aparece nada en todo el historial, decí que no encontraste compras de ese cliente/modelo.
 Si una herramienta no encuentra resultados después de eso, decilo claramente en vez de suponer.
+Para preguntas sobre características técnicas de productos (specs, comparar modelos, qué modelos cumplen una condición, qué ofrecerle a un cliente) usá ficha_tecnica: son las fichas oficiales cargadas desde las listas de precio de cada línea — nunca completes specs de memoria, y si un modelo no tiene ficha cargada decilo. Podés combinarla con las otras herramientas para cruzar specs con ventas o clientes.
 Formato de respuesta:
 1. Primero respondé la pregunta puntual con los datos exactos (fechas, distribuidor, cantidades, precios en USD).
 2. Si los datos devueltos por las herramientas muestran algo que valga la pena señalar (ej. un precio bastante más alto o bajo que en otros distribuidores, una caída o salto notorio, algo que se repite en varios clientes), agregá al final un párrafo corto que empiece con "💡 " con esa observación — pero SOLO si realmente hay algo notable en los datos que devolviste, nunca por rellenar. Si no hay nada llamativo, no agregues ese párrafo.
@@ -5115,6 +5131,7 @@ function renderPriceListView() {
     document.getElementById('pricelist-filter-bar').style.display='none';
     document.getElementById('pricelist-table-wrap').innerHTML='';
     document.getElementById('pricelist-diff').innerHTML='';
+    renderSpecsPanel();
     return;
   }
   const diff=priceList.lastDiff;
@@ -5129,6 +5146,7 @@ function renderPriceListView() {
   document.getElementById('pricelist-filter-bar').style.display='flex';
   applyPriceFilter();
   renderLastDiffReadOnly();
+  renderSpecsPanel();
 }
 // ─── STOCK UPDATE PANEL (Google Drive automático) ───────────────────────────
 const STOCK_GDRIVE_FILE_ID = '1wgHbYfXo65Z9iZxGV0vTdy1NCiKnyl5J0Ju9HrsuiKw';
@@ -5710,8 +5728,9 @@ function applyPriceFilter(){
           priceCell=`<td>${p.price!=null?fmtUSD(p.price):'-'}</td>`;
           updatedCell=`<td style="color:var(--text3)">—</td>`;
         }
+        const specIcon=getProductSpecs(p.code,p.desc)?` <i class="ti ti-file-description" title="Ver ficha técnica" data-code="${esc(p.code)}" data-desc="${esc(p.desc||'')}" onclick="openSpecsModalFromEl(this)" style="cursor:pointer;color:var(--brand-text);font-size:13px;vertical-align:-2px"></i>`:'';
         return `<tr class="${isNew?'row-new':''}">
-          <td>${esc(p.desc||'-')}</td>
+          <td>${esc(p.desc||'-')}${specIcon}</td>
           ${stockCells}
           ${priceCell}
           ${updatedCell}
@@ -5827,6 +5846,225 @@ function renderLastDiffReadOnly(){
       ${diff.changed.length?`<div style="font-size:12px;font-weight:600;color:var(--amber-text);margin-bottom:6px">CAMBIOS DE PRECIO</div><div class="table-scroll" style="max-height:180px;overflow-y:auto;margin-bottom:12px"><table class="data-table" style="font-size:12px"><thead><tr><th>Código</th><th>Descripción</th><th>Precio ant.</th><th>Precio nuevo</th><th></th></tr></thead><tbody>${diff.changed.map(c=>`<tr><td>${esc(c.code)}</td><td>${esc(c.desc||'-')}</td><td style="color:var(--red-text)">USD ${Number(c.oldPrice).toLocaleString('es-AR',{minimumFractionDigits:2})}</td><td style="color:var(--green-text)">USD ${Number(c.newPrice).toLocaleString('es-AR',{minimumFractionDigits:2})}</td><td>${c.dir==='up'?'<span class="pill pill-red">▲ Subió</span>':'<span class="pill pill-green">▼ Bajó</span>'}</td></tr>`).join('')}</tbody></table></div>`:''}
       ${diff.removed.length?`<div style="font-size:12px;font-weight:600;color:var(--red-text);margin-bottom:6px">YA NO APARECEN (${diff.removed.length})</div><div style="font-size:12px;color:var(--text3);margin-bottom:8px">${diff.removed.map(p=>esc(p.code)).join(', ')}</div>`:''}
     </div>`;
+}
+// ─── FICHAS TÉCNICAS (specs por producto, desde las listas de precio de cada línea) ───
+// Cada línea (Monitores, Fuentes, Gabinetes, Cooling, PRO/Cubi, EdgeXpert, Arms...) tiene su propia
+// lista con una columna por especificación. Se suben acá, se guardan en Firebase (salesops_specs)
+// indexadas por código (o por nombre de modelo si la lista no trae código, como la de Monitores)
+// y las usan el Quiz (training/) y LuckIA para preguntar/responder con datos reales.
+let _lastSpecUpload = null;
+const SPEC_CODE_RE = /^(sku#?|mf\.?\s*part\s*number|mpn)$/i;
+const SPEC_CODE_FALLBACK_RE = /^(part\s*number|item\s*code)$/i;
+const SPEC_NAME_RE = /^(model\s*name|marketing\s*name)$/i;
+const SPEC_HEADER_HINT_RE = /^(upc|upc code|sku#?|model\s*name|marketing\s*name|mf\.?\s*part\s*number|mpn|part\s*number|status|warranty)$/i;
+// Columnas que no son specs: precios, packaging, códigos internos, links
+const SPEC_SKIP_COL_RE = /^(upc|upc code|item code|model number.*|data sheet|spec sheet|product webpage|webpage link|note|map|ir \(direct\)|msrp|disti cost|end user cost|available time|channel|channel focus|suggested channel listing name|unit|dimension)$|disty|e-?tail|precio|price|latam|promo|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre|pcs|qty|carton|ctn|pallet|retail packag|box dimension|gross|erp/i;
+// Cada lista es de una sola línea → manda el nombre del archivo/hoja; el nombre del modelo queda de respaldo
+const SPEC_FILE_CATEGORY = [[/\barms?\b/i,'accesorios'],[/cooling|cooler|frozr/i,'cooling'],[/monitor/i,'monitor'],[/chassis|gabinete/i,'gabinete'],[/\bpsu\b|fuente/i,'psu'],[/edgexpert/i,'ai'],[/cubi|pro dt|pro series/i,'minipc'],[/\bvga\b|graphics|placa de video/i,'vga'],[/mother|\bmb\b/i,'motherboard'],[/\bssd\b/i,'ssd']];
+
+function _specClean(v) { return v == null ? '' : String(v).replace(/\s+/g,' ').trim(); }
+function normSpecKey(s) { return String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,''); }
+function _specRowCount(r) { return (r||[]).filter(c => _specClean(c) !== '').length; }
+function _specHasUpc(r) { return (r||[]).some(c => /^\d{11,13}$/.test(_specClean(c))); }
+function _specIsHeaderRow(r) {
+  const cells = (r||[]).map(_specClean).filter(Boolean);
+  if(cells.length < 4 || _specHasUpc(r)) return false; // con un UPC adentro es una fila de datos
+  return cells.some(c => SPEC_HEADER_HINT_RE.test(c));
+}
+function _specGuessCategory(rec, fileName, sheetName) {
+  const hit = SPEC_FILE_CATEGORY.find(([re]) => re.test(fileName + ' ' + sheetName));
+  return hit ? hit[1] : classifyProductCategory(rec.name || rec.code);
+}
+// Lee todas las hojas de una lista de línea. Cada lista arma el encabezado distinto:
+// - Monitores: los nombres de las specs están en la fila DE ARRIBA de "Model Name", y el
+//   encabezado se repite por bloque (PRO MONITORS, PRO MAX) sin la columna "Model Name".
+// - Fuentes: "+12V" se abre en una fila de sub-encabezado (+5 V / +3.3 V / ...) y cada fuente
+//   ocupa 3 filas (las 2 extra sin SKU se ignoran). El sub-encabezado manda sobre el de arriba.
+function parseSpecWorkbook(wb, fileName) {
+  const recs = [];
+  wb.SheetNames.forEach(sheetName => {
+    const ws = wb.Sheets[sheetName];
+    if(!ws || !ws['!ref']) return;
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    const rows = XLSX.utils.sheet_to_json(ws, { header:1, raw:true, defval:null, blankrows:true });
+    let hdr = null, codeCol = -1, nameCol = -1, skipRow = -1;
+    for(let i = 0; i < rows.length; i++) {
+      const row = rows[i] || [];
+      if(i === skipRow) continue;
+      if(_specIsHeaderRow(row)) {
+        let h = row.map(_specClean);
+        const above = rows[i-1] || [];
+        if(_specRowCount(above) > _specRowCount(row) * 2 && !_specHasUpc(above))
+          h = h.map((x,c) => x || _specClean(above[c]));
+        if(hdr) h = h.map((x,c) => x || hdr[c] || '');
+        let cc = h.findIndex(x => SPEC_CODE_RE.test(x));
+        if(cc < 0) cc = h.findIndex(x => SPEC_CODE_FALLBACK_RE.test(x));
+        const nc = h.findIndex(x => SPEC_NAME_RE.test(x));
+        const below = rows[i+1] || [];
+        const belowHasId = (cc > -1 && _specClean(below[cc])) || (nc > -1 && _specClean(below[nc]));
+        if(!belowHasId && _specRowCount(below) >= 3 && !_specIsHeaderRow(below)) {
+          h = h.map((x,c) => _specClean(below[c]) || x);
+          skipRow = i + 1;
+        }
+        hdr = h; codeCol = cc; nameCol = nc;
+        continue;
+      }
+      if(!hdr || (codeCol < 0 && nameCol < 0)) continue;
+      if(_specRowCount(row) < 5) continue; // títulos de sección ("OLED Gaming Monitors", "Gaming Series")
+      const code = codeCol > -1 ? _specClean(row[codeCol]) : '';
+      const name = nameCol > -1 ? _specClean(row[nameCol]) : '';
+      if(!code && !name) continue;
+      const rec = { code, name, status:'', link:'', source:fileName, specs:[] };
+      const seen = {};
+      hdr.forEach((label, c) => {
+        if(c === codeCol || c === nameCol) return;
+        const cell = ws[XLSX.utils.encode_cell({ r: range.s.r + i, c: range.s.c + c })];
+        const target = cell && cell.l && cell.l.Target;
+        if(target && /^https?:/i.test(target)) { if(!rec.link) rec.link = target; return; }
+        let v = _specClean(row[c]);
+        if(!v || !label) return;
+        if(/^https?:\/\//i.test(v)) { if(!rec.link) rec.link = v; return; }
+        if(/^(status|remark)$/i.test(label) && !rec.status && v.length <= 25) { rec.status = v; return; }
+        if(SPEC_SKIP_COL_RE.test(label)) return;
+        if(/^(n\/?a|tbd|-+|—|none|link)$/i.test(v)) return;
+        if(v.length > 300) v = v.slice(0, 297) + '...';
+        seen[label] = (seen[label] || 0) + 1;
+        rec.specs.push([seen[label] > 1 ? `${label} (${seen[label]})` : label, v]);
+      });
+      if(rec.specs.length < 3) continue;
+      rec.cat = _specGuessCategory(rec, fileName, sheetName);
+      recs.push(rec);
+    }
+  });
+  return recs;
+}
+function _specItemKey(r) { return r.code ? 'C' + normSpecKey(r.code) : 'N' + normSpecKey(r.name); }
+function _specIndex() {
+  if(_specIndexCache) return _specIndexCache;
+  const byCode = new Map(), byName = new Map();
+  Object.values(productSpecs.items || {}).forEach(r => {
+    if(r.code) byCode.set(normSpecKey(r.code), r);
+    if(r.name) byName.set(normSpecKey(r.name), r);
+  });
+  return (_specIndexCache = { byCode, byName });
+}
+// Busca la ficha de un producto de la lista: por código, y si no por nombre de modelo
+function getProductSpecs(code, desc) {
+  const ix = _specIndex();
+  return (code && ix.byCode.get(normSpecKey(code)))
+      || (desc && ix.byName.get(normSpecKey(desc)))
+      || (code && ix.byName.get(normSpecKey(code)))
+      || null;
+}
+async function handleSpecFiles(fileList) {
+  if(_currentRole !== 'admin') { _alert('Solo un administrador puede cargar fichas técnicas.', {type:'warning'}); return; }
+  const files = [...(fileList || [])];
+  if(!files.length) return;
+  const prog = document.getElementById('specs-upload-progress');
+  const now = new Date().toISOString();
+  const nextItems = { ...(productSpecs.items || {}) };
+  const nextFiles = [...(productSpecs.files || [])];
+  const results = [];
+  for(const f of files) {
+    if(prog) prog.textContent = `Leyendo ${f.name}...`;
+    try {
+      const wb = XLSX.read(await f.arrayBuffer(), { type:'array' });
+      const recs = parseSpecWorkbook(wb, f.name);
+      recs.forEach(r => { r.at = now; nextItems[_specItemKey(r)] = r; });
+      const entry = { name:f.name, count:recs.length, at:now };
+      const idx = nextFiles.findIndex(x => x.name === f.name);
+      if(idx > -1) nextFiles[idx] = entry; else nextFiles.push(entry);
+      results.push({ file:f.name, recs });
+    } catch(e) { results.push({ file:f.name, recs:[], error:e.message }); }
+  }
+  const prev = productSpecs;
+  productSpecs = { updatedAt:now, files:nextFiles, items:nextItems };
+  _specIndexCache = null;
+  if(prog) prog.textContent = 'Guardando...';
+  try {
+    await IDB.set('salesops_specs', JSON.stringify(productSpecs));
+  } catch(e) {
+    productSpecs = prev; _specIndexCache = null;
+    if(prog) prog.textContent = '';
+    _alert('No se pudieron guardar las fichas: ' + e.message + (/permission/i.test(e.message) ? ' — hay que habilitar el nodo salesops_specs en las reglas de Firebase.' : ''), {type:'error'});
+    return;
+  }
+  if(prog) prog.textContent = '';
+  _lastSpecUpload = results;
+  const total = results.reduce((s,r) => s + r.recs.length, 0);
+  toast(`${total} fichas técnicas cargadas.`);
+  renderPriceListView();
+}
+function renderSpecsPanel() {
+  const el = document.getElementById('specs-panel');
+  if(!el) return;
+  const items = Object.values(productSpecs.items || {});
+  const prods = (priceList.products || []).filter(p => !p.isSubSection && p.code);
+  const covered = prods.filter(p => getProductSpecs(p.code, p.desc)).length;
+  const byCat = {};
+  items.forEach(r => { const k = r.cat || 'other'; byCat[k] = (byCat[k] || 0) + 1; });
+  const chips = Object.entries(byCat).sort((a,b) => b[1] - a[1]).map(([k,n]) => {
+    const col = CATEGORY_COLOR[k] || CATEGORY_COLOR.other;
+    return `<span style="display:inline-block;font-size:11px;padding:2px 8px;border-radius:10px;border:0.5px solid ${col};color:var(--text2);margin:0 4px 4px 0">${esc(CATEGORY_LABELS[k] || k)}: <b>${n}</b></span>`;
+  }).join('');
+  const fmtD = iso => iso ? new Date(iso).toLocaleDateString('es-AR') : '-';
+  const filesHtml = (productSpecs.files || []).slice().sort((a,b) => (b.at||'').localeCompare(a.at||''))
+    .map(f => `<div style="font-size:11px;color:var(--text3)">${esc(f.name)} — ${f.count} fichas · ${fmtD(f.at)}</div>`).join('');
+  // Resultado de la última carga: qué fichas no tienen producto en la lista vigente
+  let lastHtml = '';
+  if(_lastSpecUpload) {
+    const plCodes = new Set(), plNames = new Set();
+    prods.forEach(p => { plCodes.add(normSpecKey(p.code)); if(p.desc) plNames.add(normSpecKey(p.desc)); });
+    const inList = r => (r.code && (plCodes.has(normSpecKey(r.code)) || plNames.has(normSpecKey(r.code)))) || (r.name && plNames.has(normSpecKey(r.name)));
+    lastHtml = `<div style="margin-top:10px;padding-top:10px;border-top:0.5px solid var(--border2)">
+      <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:4px">Última carga</div>
+      ${_lastSpecUpload.map(r => {
+        if(r.error) return `<div style="font-size:12px;color:var(--red-text)">${esc(r.file)}: no se pudo leer (${esc(r.error)})</div>`;
+        const out = r.recs.filter(x => !inList(x));
+        return `<div style="font-size:12px;color:var(--text2)">${esc(r.file)}: <b>${r.recs.length}</b> fichas · ${r.recs.length - out.length} en la lista de precios${out.length ? ` · <span title="${esc(out.map(x => x.name || x.code).join(', '))}" style="text-decoration:underline dotted;cursor:help">${out.length} sin producto en la lista</span>` : ''}${!r.recs.length ? ' — <span style="color:var(--amber-text)">no encontré encabezados de specs en este archivo</span>' : ''}</div>`;
+      }).join('')}
+    </div>`;
+  }
+  const isAdmin = _currentRole === 'admin';
+  el.innerHTML = `<details class="ai-box" style="margin-top:12px"${_lastSpecUpload ? ' open' : ''}>
+    <summary style="cursor:pointer;font-size:13px;color:var(--text);list-style:none;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+      <i class="ti ti-file-description" style="color:var(--brand-text);font-size:15px"></i><b>Fichas técnicas</b>
+      <span style="color:var(--text3);font-size:12px">${items.length ? `${items.length} cargadas · ${covered} de ${prods.length} productos de la lista con ficha · actualizadas el ${fmtD(productSpecs.updatedAt)}` : 'todavía no cargaste ninguna'}</span>
+      <i class="ti ti-chevron-down" style="margin-left:auto;color:var(--text3)"></i>
+    </summary>
+    <div style="margin-top:10px">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:8px">Specs de cada producto sacadas de las listas de precio por línea (Monitores, Fuentes, Gabinetes, Cooling, PRO/Cubi, etc.). Las usan el Quiz y LuckIA. En la tabla, el ícono <i class="ti ti-file-description" style="color:var(--brand-text)"></i> al lado del modelo abre su ficha.</div>
+      ${chips ? `<div style="margin-bottom:6px">${chips}</div>` : ''}
+      ${filesHtml}
+      ${isAdmin ? `<div class="upload-zone" style="padding:1rem;margin-top:10px" onclick="document.getElementById('file-input-specs').click()"
+          ondragover="event.preventDefault();this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')"
+          ondrop="event.preventDefault();this.classList.remove('dragover');handleSpecFiles(event.dataTransfer.files)">
+          <p style="margin:0"><i class="ti ti-cloud-upload" style="font-size:16px;vertical-align:-3px"></i> <b>Cargar fichas técnicas</b> — podés seleccionar varias listas juntas</p>
+          <div class="hint">Las fichas de un modelo que ya existía se reemplazan por la nueva; el resto se mantiene.</div>
+          <div id="specs-upload-progress" style="font-size:11px;color:var(--brand-text);margin-top:6px;font-weight:600"></div>
+        </div>
+        <input type="file" id="file-input-specs" accept=".xlsx,.xls" multiple style="display:none" onchange="handleSpecFiles(this.files);this.value=''" />` : ''}
+      ${lastHtml}
+    </div>
+  </details>`;
+}
+function openSpecsModalFromEl(el) {
+  const r = getProductSpecs(el.dataset.code, el.dataset.desc);
+  if(!r) return;
+  document.getElementById('specs-modal-title').innerHTML = `<i class="ti ti-file-description" style="margin-right:6px;color:var(--brand-text)"></i>${esc(r.name || r.code)}`;
+  const meta = [
+    r.code ? `<span style="font-family:monospace">${esc(r.code)}</span>` : '',
+    esc(CATEGORY_LABELS[r.cat] || ''),
+    r.status ? `<span style="color:var(--brand-text);font-weight:600">${esc(r.status)}</span>` : '',
+    r.link ? `<a href="${esc(r.link)}" target="_blank" rel="noopener" style="color:var(--brand-text)"><i class="ti ti-external-link"></i> Ficha oficial</a>` : ''
+  ].filter(Boolean).join(' · ');
+  document.getElementById('specs-modal-body').innerHTML = `
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">${meta}</div>
+    <table class="data-table" style="font-size:12px"><tbody>
+      ${r.specs.map(([l,v]) => `<tr><td style="color:var(--text3);white-space:nowrap;vertical-align:top;width:35%">${esc(l)}</td><td>${esc(v)}</td></tr>`).join('')}
+    </tbody></table>
+    <div style="font-size:11px;color:var(--text3);margin-top:8px">Fuente: ${esc(r.source || '-')}</div>`;
+  openOverlay('modal-specs');
 }
 const fileInputPrice = document.getElementById('file-input-price');
 const dropZonePrice = document.getElementById('drop-zone-price');
@@ -13307,6 +13545,18 @@ const CRM_AI_TOOLS = [
       },
       required: ['tier']
     }
+  },
+  {
+    name: 'ficha_tecnica',
+    description: 'Fichas técnicas oficiales de productos MSI (cargadas desde las listas de precio de cada línea: monitores, fuentes, gabinetes, cooling, mini PC/Cubi, EdgeXpert, brazos de monitor, etc.), con estado (nuevo/vigente/EOL/liquidación) y precio de lista actual. Usar para preguntas de características técnicas, comparar modelos, o encontrar los modelos que cumplen una condición (ej. monitores de 27" y 240Hz, fuentes de 1000W Platinum, gabinetes que soporten radiador de 360). Con 1 a 4 resultados devuelve la ficha completa; con más, una versión resumida.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        modelo: { type: 'string', description: 'Modelo o código, completo o parcial (opcional) — ej. "MAG 274QPF", "A850GL", "CLP13360"' },
+        categoria: { type: 'string', description: 'Categoría (opcional): monitor, psu, gabinete, cooling, minipc, ai (EdgeXpert), accesorios (brazos de monitor), vga, motherboard, ssd' },
+        contiene: { type: 'string', description: 'Texto que tiene que aparecer en la ficha (opcional) — ej. "240Hz", "QD-OLED", "Platinum", "AM5". Varias palabras separadas por espacio: tienen que aparecer todas. Es una búsqueda de texto amplia (puede coincidir en otra spec): confirmá cada resultado contra sus specs antes de responder' }
+      }
+    }
   }
 ];
 
@@ -13430,12 +13680,58 @@ function _aiToolResellersTier({tier, anio, mes}) {
   };
 }
 
+const _AI_SPEC_CAT_ALIAS = { fuente:'psu', fuentes:'psu', gabinetes:'gabinete', chassis:'gabinete', monitores:'monitor', cubi:'minipc', 'mini pc':'minipc', edgexpert:'ai', brazo:'accesorios', brazos:'accesorios', arm:'accesorios', arms:'accesorios', refrigeracion:'cooling', refrigeración:'cooling', mother:'motherboard', motherboards:'motherboard', 'placa de video':'vga', 'placas de video':'vga' };
+function _aiToolFichaTecnica({modelo, categoria, contiene}) {
+  const items = Object.values(productSpecs.items || {});
+  if(!items.length) return { error: 'Todavía no hay fichas técnicas cargadas (se cargan en Lista de Precios → Fichas técnicas).' };
+  const qTokens = modelo ? String(modelo).split(/\s+/).map(normSpecKey).filter(Boolean) : [];
+  const cat = categoria ? String(categoria).toLowerCase().trim() : '';
+  const catKey = _AI_SPEC_CAT_ALIAS[cat] || cat;
+  const cTokens = contiene ? String(contiene).toLowerCase().split(/\s+/).filter(Boolean) : [];
+  const found = items.filter(r => {
+    if(qTokens.length) {
+      const hay = normSpecKey(r.code) + ' ' + normSpecKey(r.name);
+      if(!qTokens.every(t => hay.includes(t))) return false;
+    }
+    if(catKey && r.cat !== catKey) return false;
+    if(cTokens.length) {
+      const txt = (r.name + ' ' + r.specs.map(s => s[0] + ' ' + s[1]).join(' ')).toLowerCase();
+      if(!cTokens.every(t => txt.includes(t))) return false;
+    }
+    return true;
+  });
+  const plMap = new Map();
+  (priceList.products || []).forEach(p => {
+    if(p.isSubSection) return;
+    if(p.code) plMap.set('C' + normSpecKey(p.code), p);
+    if(p.desc) plMap.set('N' + normSpecKey(p.desc), p);
+  });
+  const compact = found.length > 4;
+  const fichas = found.slice(0, compact ? 20 : 4).map(r => {
+    const pl = plMap.get('C' + normSpecKey(r.code)) || plMap.get('N' + normSpecKey(r.name)) || plMap.get('N' + normSpecKey(r.code));
+    const specs = {};
+    r.specs.forEach(([l,v]) => { if(!compact || v.length <= 80) specs[l] = v; });
+    return {
+      modelo: r.name || r.code, codigo: r.code || undefined, estado: r.status || undefined,
+      categoria: CATEGORY_LABELS[r.cat] || r.cat, en_lista_de_precios: !!pl,
+      precio_lista_usd: pl && pl.price != null ? Math.abs(pl.price) : undefined,
+      link_ficha: r.link || undefined, specs
+    };
+  });
+  return {
+    total_encontradas: found.length, mostrando: fichas.length,
+    nota: found.length > fichas.length ? 'Hay más resultados: afiná la búsqueda con modelo, categoría o contiene.' : undefined,
+    fichas
+  };
+}
+
 function _executeAiTool(name, input) {
   try {
     if(name === 'buscar_compras_cliente')   return _aiToolBuscarComprasCliente(input||{});
     if(name === 'historial_precios_modelo') return _aiToolHistorialPrecios(input||{});
     if(name === 'ranking_clientes')         return _aiToolRankingClientes(input||{});
     if(name === 'resellers_tier')           return _aiToolResellersTier(input||{});
+    if(name === 'ficha_tecnica')            return _aiToolFichaTecnica(input||{});
     return { error: 'Herramienta desconocida: ' + name };
   } catch(e) { return { error: 'Error interno: ' + e.message }; }
 }
