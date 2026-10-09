@@ -1668,7 +1668,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '09.10.26.2';
+const APP_VERSION = '09.10.26.3';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -6084,8 +6084,8 @@ function openSpecsModalFromEl(el) {
   openOverlay('modal-specs');
 }
 // ─── EVOLUCIÓN DE PRECIOS (historial de la lista LATAM) ───────────────────────
-// Datos: salesops_price_history (lo escribe scripts/price_history.js en el workflow diario;
-// respaldo: price_history.json servido junto a la app). Formato: { checks:[días con lista
+// Datos: salesops_price_history (lo escribe scripts/price_history.js en el workflow diario a partir
+// de price_history.json del repo — el .json no se sirve en la web, .htaccess lo bloquea). Formato: { checks:[días con lista
 // leída], items:{ código:{ n, c, s:último día visto, p:[[día, precio], ...un punto por cambio] } } }
 let _phData = null, _phPeriod = 'all', _phCat = '', _phSearch = '', _phSel = null, _phSort = 'var_desc', _phOnlyActive = true;
 const PH_CAT_LABEL = { VGA:'Placas de Video', MB:'Motherboards', Monitor:'Monitores', PSU:'Fuentes', Chassis:'Gabinetes', Cooling:'Cooling', MiniPC:'Mini PC', SSD:'SSD', ARM:'Brazos de monitor', Accessories:'Accesorios', Bundle:'Bundles', Networking:'Networking', AI:'AI Solutions' };
@@ -6115,7 +6115,6 @@ function _phPriceAt(it, day) {
 async function _phLoad() {
   if(_phData) return _phData;
   try { const raw = await IDB.get('salesops_price_history'); if(raw) _phData = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch(e) {}
-  if(!_phData) { try { const r = await fetch('./price_history.json', { cache:'no-store' }); if(r.ok) _phData = await r.json(); } catch(e) {} }
   if(_phData && _phData.items) Object.values(_phData.items).forEach(it => { it.cat = _phNormCat(it.c); });
   return _phData;
 }
