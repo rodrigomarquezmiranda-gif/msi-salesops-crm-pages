@@ -74,6 +74,15 @@
   .nav-item:hover { background: var(--bg2); color: var(--text); }
   .nav-item.active { background: var(--brand-bg); color: var(--brand-text); font-weight: 500; }
   .nav-sub-item { padding-left: 26px !important; font-size: 12px !important; }
+  /* Menú agrupado y plegable */
+  .nav-section.nav-top { padding-bottom: 0.25rem; }
+  .nav-group { padding: 0.15rem 0.75rem; }
+  .nav-group-header { display: flex; width: 100%; align-items: center; justify-content: space-between; background: none; border: none; cursor: pointer; font-family: inherit; font-size: 10px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.8px; padding: 8px 0.5rem 4px; }
+  .nav-group-header:hover { color: var(--text2); }
+  .nav-group-header i { font-size: 12px; transition: transform 0.15s; }
+  .nav-group.collapsed .nav-group-items { display: none; }
+  .nav-group.collapsed .nav-group-header i { transform: rotate(-90deg); }
+  .nav-group-empty { display: none !important; }
   /* Reseller Tracking */
   .reseller-block { margin-bottom: 28px; }
   .reseller-block-header { display:flex; align-items:center; gap:10px; margin-bottom:10px; padding:10px 14px; background:var(--bg2); border-radius:var(--radius); border:0.5px solid var(--border2); }
@@ -454,108 +463,134 @@
       </div>
     </div>
     <div class="sidebar-nav-scroll">
-    <nav class="nav-section">
-      <div class="nav-label">Vistas</div>
+    <nav class="nav-section nav-top">
       <button class="nav-item active" id="nav-dashboard" onclick="gotoTab('dashboard')">
         <i class="ti ti-layout-dashboard" style="color:#5E81AC"></i> Dashboard
         <span class="nav-badge" id="nb-alerts" style="display:none">0</span>
       </button>
-      <button class="nav-item" id="nav-pi" onclick="gotoTab('pi')">
-        <i class="ti ti-file-invoice" style="color:#7B7BC7"></i> Ordenes
-        <span class="nav-count" id="nb-pi">0</span>
-      </button>
-      <button class="nav-item" id="nav-rebates" onclick="gotoTab('rebates')">
-        <i class="ti ti-percentage" style="color:#CF8A29"></i> Rebates
-        <span class="nav-count" id="nb-rebates">0</span>
-      </button>
-      <button class="nav-item" id="nav-pricelist" onclick="gotoTab('pricelist')">
-        <i class="ti ti-tag" style="color:#4EAACC"></i> Lista de Precios
-        <span id="nb-pricelist" style="display:none;background:#D08770;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:10px;margin-left:auto">●</span>
-      </button>
-      <button class="nav-item" id="nav-pricetrend" onclick="gotoTab('pricetrend')">
-        <i class="ti ti-chart-line" style="color:#4EAACC"></i> Evolución de Precios
-      </button>
-      <button class="nav-item" id="nav-salesprices" onclick="gotoTab('salesprices')">
-        <i class="ti ti-currency-dollar" style="color:#5A9E6F"></i> Precios de Venta
-        <span class="nav-count" id="nb-salesprices">0</span>
-      </button>
-      <button class="nav-item" id="nav-rotation" onclick="gotoTab('rotation')">
-        <i class="ti ti-chart-line" style="color:#D0785A"></i> Inventario/Ventas
-        <span class="nav-badge" id="nb-rotation-alert" style="display:none">0</span>
-        <span class="nav-count" id="nb-rotation">0</span>
-      </button>
-      <button class="nav-item" id="nav-trend" onclick="gotoTab('trend')">
-        <i class="ti ti-trending-up" style="color:#6EA89A"></i> Top Movers
-      </button>
-      <button class="nav-item" id="nav-rotcompare" onclick="gotoTab('rotcompare')">
-        <i class="ti ti-arrows-shuffle" style="color:#9B72AA"></i> Comparador de Rotación
-      </button>
-      <button class="nav-item" id="nav-impact" onclick="gotoTab('impact')">
-        <i class="ti ti-chart-arrows" style="color:#D08770"></i> Impacto de Programa
-      </button>
-      <button class="nav-item" id="nav-clients" onclick="gotoTab('clients')">
-        <i class="ti ti-users" style="color:#4B8ABF"></i> Ranking de Clientes
-      </button>
-      <button class="nav-item nav-sub-item" id="nav-resellers-t1" onclick="gotoTab('resellers-t1')">
-        <i class="ti ti-crown" style="color:#F0C040;font-size:13px"></i> Resellers T1
-      </button>
-      <button class="nav-item nav-sub-item" id="nav-resellers-t2" onclick="gotoTab('resellers-t2')">
-        <i class="ti ti-crown" style="color:#9DB8C8;font-size:13px"></i> Resellers T2
-      </button>
-      <button class="nav-item nav-sub-item" id="nav-resellers-t3" onclick="gotoTab('resellers-t3')">
-        <i class="ti ti-crown" style="color:#B08060;font-size:13px"></i> Resellers T3
-      </button>
-      <button class="nav-item" id="nav-catranking" onclick="gotoTab('catranking')">
-        <i class="ti ti-category" style="color:#4EAACC"></i> Ranking por Categoría
-      </button>
-      <button class="nav-item" id="nav-clientcompare" onclick="gotoTab('clientcompare')">
-        <i class="ti ti-users-group" style="color:#A3BE8C"></i> Comparador de Clientes
-      </button>
-      <button class="nav-item" id="nav-imports" onclick="gotoTab('imports')">
-        <i class="ti ti-ship" style="color:#BF616A"></i> Análisis de Importaciones
-        <span class="nav-count" id="nb-imports">0</span>
-      </button>
-      <button class="nav-item" id="nav-etailers" onclick="gotoTab('etailers')">
-        <i class="ti ti-shopping-bag" style="color:#88C0D0"></i> Etailers
-        <span class="nav-count" id="nb-etailers">0</span>
-      </button>
-      <button class="nav-item" id="nav-ar" onclick="gotoTab('ar')">
-        <i class="ti ti-credit-card" style="color:#A3BE8C"></i> Cuentas
-        <span class="nav-count" id="nb-ar">0</span>
-      </button>
-      <button class="nav-item" id="nav-mkt" onclick="gotoTab('mkt')">
-        <i class="ti ti-speakerphone" style="color:#EBCB8B"></i> Marketing Budget
-      </button>
     </nav>
-    <nav class="nav-section">
-      <div class="nav-label">Herramientas</div>
-      <button class="nav-item" id="nav-semaforo" onclick="gotoTab('semaforo')" style="color:#D08770">
-        <i class="ti ti-traffic-lights" style="color:#D08770;font-size:16px"></i> Semáforo
-      </button>
-      <button class="nav-item" id="nav-sugeridos" onclick="gotoTab('sugeridos')" style="color:#A3BE8C">
-        <i class="ti ti-shopping-cart" style="color:#A3BE8C;font-size:16px"></i> Sugeridos
-      </button>
-      <button class="nav-item" id="nav-psucalc" onclick="gotoTab('psucalc')">
-        <i class="ti ti-bolt" style="color:#EBCB8B;font-size:16px"></i> Calculadora PSU
-      </button>
-      <button class="nav-item" id="nav-share" onclick="gotoTab('share')" style="color:#B48EAD">
-        <i class="ti ti-chart-pie" style="color:#B48EAD;font-size:16px"></i> Mi Participación
-      </button>
-      <button class="nav-item" id="nav-pbm" onclick="gotoTab('pbm')" style="color:#C0392B">
-        <i class="ti ti-trophy" style="color:#C0392B;font-size:16px"></i> Powered by MSI
-      </button>
-      <button class="nav-item" id="nav-ia" onclick="gotoTab('ia')">
-        <img src="./luckia-avatar.jpg" alt="" style="width:16px;height:16px;border-radius:50%;object-fit:cover;vertical-align:-3px;margin-right:2px" /> LuckIA
-      </button>
-      <button class="nav-item" onclick="window.open('./training/index.html','_blank')" title="Probá cuánto sabés de productos MSI">
-        <i class="ti ti-school" style="color:#A3BE8C"></i> MSI Quiz
-      </button>
-      <button class="nav-item" id="nav-notificaciones" onclick="gotoTab('notificaciones')">
-        <i class="ti ti-bell-ringing" style="color:#EBCB8B"></i> Notificaciones
-      </button>
-      <button class="nav-item admin-only" id="nav-usuarios" onclick="gotoTab('usuarios')">
-        <i class="ti ti-user-cog" style="color:#7B7BC7"></i> Usuarios
-      </button>
+    <nav class="nav-section nav-group" data-group="comercial">
+      <button class="nav-group-header" onclick="_toggleNavGroup('comercial')" aria-expanded="true"><span>Comercial</span><i class="ti ti-chevron-down"></i></button>
+      <div class="nav-group-items">
+        <button class="nav-item" id="nav-pi" onclick="gotoTab('pi')">
+          <i class="ti ti-file-invoice" style="color:#7B7BC7"></i> Ordenes
+          <span class="nav-count" id="nb-pi">0</span>
+        </button>
+        <button class="nav-item" id="nav-rebates" onclick="gotoTab('rebates')">
+          <i class="ti ti-percentage" style="color:#CF8A29"></i> Rebates
+          <span class="nav-count" id="nb-rebates">0</span>
+        </button>
+        <button class="nav-item" id="nav-ar" onclick="gotoTab('ar')">
+          <i class="ti ti-credit-card" style="color:#A3BE8C"></i> Cuentas
+          <span class="nav-count" id="nb-ar">0</span>
+        </button>
+        <button class="nav-item" id="nav-mkt" onclick="gotoTab('mkt')">
+          <i class="ti ti-speakerphone" style="color:#EBCB8B"></i> Marketing Budget
+        </button>
+      </div>
+    </nav>
+    <nav class="nav-section nav-group" data-group="precios">
+      <button class="nav-group-header" onclick="_toggleNavGroup('precios')" aria-expanded="true"><span>Precios</span><i class="ti ti-chevron-down"></i></button>
+      <div class="nav-group-items">
+        <button class="nav-item" id="nav-pricelist" onclick="gotoTab('pricelist')">
+          <i class="ti ti-tag" style="color:#4EAACC"></i> Lista de Precios
+          <span id="nb-pricelist" style="display:none;background:#D08770;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:10px;margin-left:auto">●</span>
+        </button>
+        <button class="nav-item" id="nav-pricetrend" onclick="gotoTab('pricetrend')">
+          <i class="ti ti-chart-line" style="color:#4EAACC"></i> Evolución de Precios
+        </button>
+        <button class="nav-item" id="nav-salesprices" onclick="gotoTab('salesprices')">
+          <i class="ti ti-currency-dollar" style="color:#5A9E6F"></i> Precios de Venta
+          <span class="nav-count" id="nb-salesprices">0</span>
+        </button>
+        <button class="nav-item" id="nav-pbm" onclick="gotoTab('pbm')" style="color:#C0392B">
+          <i class="ti ti-trophy" style="color:#C0392B;font-size:16px"></i> Powered by MSI
+        </button>
+      </div>
+    </nav>
+    <nav class="nav-section nav-group" data-group="stock">
+      <button class="nav-group-header" onclick="_toggleNavGroup('stock')" aria-expanded="true"><span>Stock y ventas</span><i class="ti ti-chevron-down"></i></button>
+      <div class="nav-group-items">
+        <button class="nav-item" id="nav-rotation" onclick="gotoTab('rotation')">
+          <i class="ti ti-chart-line" style="color:#D0785A"></i> Inventario/Ventas
+          <span class="nav-badge" id="nb-rotation-alert" style="display:none">0</span>
+          <span class="nav-count" id="nb-rotation">0</span>
+        </button>
+        <button class="nav-item" id="nav-semaforo" onclick="gotoTab('semaforo')" style="color:#D08770">
+          <i class="ti ti-traffic-lights" style="color:#D08770;font-size:16px"></i> Semáforo
+        </button>
+        <button class="nav-item" id="nav-sugeridos" onclick="gotoTab('sugeridos')" style="color:#A3BE8C">
+          <i class="ti ti-shopping-cart" style="color:#A3BE8C;font-size:16px"></i> Sugeridos
+        </button>
+        <button class="nav-item" id="nav-trend" onclick="gotoTab('trend')">
+          <i class="ti ti-trending-up" style="color:#6EA89A"></i> Top Movers
+        </button>
+        <button class="nav-item" id="nav-rotcompare" onclick="gotoTab('rotcompare')">
+          <i class="ti ti-arrows-shuffle" style="color:#9B72AA"></i> Comparador de Rotación
+        </button>
+        <button class="nav-item" id="nav-impact" onclick="gotoTab('impact')">
+          <i class="ti ti-chart-arrows" style="color:#D08770"></i> Impacto de Programa
+        </button>
+      </div>
+    </nav>
+    <nav class="nav-section nav-group" data-group="clientes">
+      <button class="nav-group-header" onclick="_toggleNavGroup('clientes')" aria-expanded="true"><span>Clientes y canal</span><i class="ti ti-chevron-down"></i></button>
+      <div class="nav-group-items">
+        <button class="nav-item" id="nav-clients" onclick="gotoTab('clients')">
+          <i class="ti ti-users" style="color:#4B8ABF"></i> Ranking de Clientes
+        </button>
+        <button class="nav-item nav-sub-item" id="nav-resellers-t1" onclick="gotoTab('resellers-t1')">
+          <i class="ti ti-crown" style="color:#F0C040;font-size:13px"></i> Resellers T1
+        </button>
+        <button class="nav-item nav-sub-item" id="nav-resellers-t2" onclick="gotoTab('resellers-t2')">
+          <i class="ti ti-crown" style="color:#9DB8C8;font-size:13px"></i> Resellers T2
+        </button>
+        <button class="nav-item nav-sub-item" id="nav-resellers-t3" onclick="gotoTab('resellers-t3')">
+          <i class="ti ti-crown" style="color:#B08060;font-size:13px"></i> Resellers T3
+        </button>
+        <button class="nav-item" id="nav-clientcompare" onclick="gotoTab('clientcompare')">
+          <i class="ti ti-users-group" style="color:#A3BE8C"></i> Comparador de Clientes
+        </button>
+        <button class="nav-item" id="nav-catranking" onclick="gotoTab('catranking')">
+          <i class="ti ti-category" style="color:#4EAACC"></i> Ranking por Categoría
+        </button>
+        <button class="nav-item" id="nav-etailers" onclick="gotoTab('etailers')">
+          <i class="ti ti-shopping-bag" style="color:#88C0D0"></i> Etailers
+          <span class="nav-count" id="nb-etailers">0</span>
+        </button>
+        <button class="nav-item" id="nav-imports" onclick="gotoTab('imports')">
+          <i class="ti ti-ship" style="color:#BF616A"></i> Análisis de Importaciones
+          <span class="nav-count" id="nb-imports">0</span>
+        </button>
+        <button class="nav-item" id="nav-share" onclick="gotoTab('share')" style="color:#B48EAD">
+          <i class="ti ti-chart-pie" style="color:#B48EAD;font-size:16px"></i> Mi Participación
+        </button>
+      </div>
+    </nav>
+    <nav class="nav-section nav-group" data-group="herramientas">
+      <button class="nav-group-header" onclick="_toggleNavGroup('herramientas')" aria-expanded="true"><span>Herramientas</span><i class="ti ti-chevron-down"></i></button>
+      <div class="nav-group-items">
+        <button class="nav-item" id="nav-ia" onclick="gotoTab('ia')">
+          <img src="./luckia-avatar.jpg" alt="" style="width:16px;height:16px;border-radius:50%;object-fit:cover;vertical-align:-3px;margin-right:2px" /> LuckIA
+        </button>
+        <button class="nav-item" onclick="window.open('./training/index.html','_blank')" title="Probá cuánto sabés de productos MSI">
+          <i class="ti ti-school" style="color:#A3BE8C"></i> MSI Quiz
+        </button>
+        <button class="nav-item" id="nav-psucalc" onclick="gotoTab('psucalc')">
+          <i class="ti ti-bolt" style="color:#EBCB8B;font-size:16px"></i> Calculadora PSU
+        </button>
+      </div>
+    </nav>
+    <nav class="nav-section nav-group" data-group="admin">
+      <button class="nav-group-header" onclick="_toggleNavGroup('admin')" aria-expanded="true"><span>Admin</span><i class="ti ti-chevron-down"></i></button>
+      <div class="nav-group-items">
+        <button class="nav-item" id="nav-notificaciones" onclick="gotoTab('notificaciones')">
+          <i class="ti ti-bell-ringing" style="color:#EBCB8B"></i> Notificaciones
+        </button>
+        <button class="nav-item admin-only" id="nav-usuarios" onclick="gotoTab('usuarios')">
+          <i class="ti ti-user-cog" style="color:#7B7BC7"></i> Usuarios
+        </button>
+      </div>
     </nav>
     </div><!-- /sidebar-nav-scroll -->
     <div class="sidebar-footer">
@@ -1664,7 +1699,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '11.10.26.1';
+const APP_VERSION = '11.10.26.2';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -2893,9 +2928,34 @@ function canAccessTab(tab) {
   const allowed = TAB_ROLES[tab];
   return !allowed || allowed.includes(_currentRole);
 }
+// Menú agrupado: qué grupos dejó plegados cada usuario (preferencia de este navegador)
+function _navCollapsedSet() {
+  try { return new Set(JSON.parse(localStorage.getItem('salesops_nav_collapsed') || '[]')); } catch(e) { return new Set(); }
+}
+function _toggleNavGroup(key) {
+  const g = document.querySelector('.nav-group[data-group="' + key + '"]');
+  if(!g) return;
+  const collapsed = g.classList.toggle('collapsed');
+  g.querySelector('.nav-group-header')?.setAttribute('aria-expanded', String(!collapsed));
+  const set = _navCollapsedSet();
+  if(collapsed) set.add(key); else set.delete(key);
+  try { localStorage.setItem('salesops_nav_collapsed', JSON.stringify([...set])); } catch(e) {}
+}
+// Se llama con el rol ya aplicado: restaura plegados y oculta grupos sin ítems visibles para ese rol
+function _initNavGroups() {
+  const set = _navCollapsedSet();
+  document.querySelectorAll('.nav-group, .nav-top').forEach(g => {
+    const collapsed = !!g.dataset.group && set.has(g.dataset.group);
+    g.classList.toggle('collapsed', collapsed);
+    g.querySelector('.nav-group-header')?.setAttribute('aria-expanded', String(!collapsed));
+    const anyVisible = [...g.querySelectorAll('.nav-item')].some(b => getComputedStyle(b).display !== 'none');
+    g.classList.toggle('nav-group-empty', !anyVisible);
+  });
+}
 function gotoTab(tab) {
   if(!canAccessTab(tab)) tab = _currentRole === 'distributor' ? 'semaforo' : 'dashboard';
   currentTab = tab;
+  document.getElementById('nav-'+tab)?.closest('.nav-group')?.classList.remove('collapsed'); // si su grupo estaba plegado, se abre
   TABS.forEach(t => {
     const el = document.getElementById('tab-'+t);
     if(t === tab) {
@@ -18000,6 +18060,7 @@ _fbAuth.onAuthStateChanged(async (user) => {
       document.body.classList.toggle('is-admin', role === 'admin');
       document.body.classList.toggle('reader-pi', role === 'reader-pi');
       document.body.classList.toggle('is-distributor', role === 'distributor');
+      _initNavGroups();
       loginScreen.style.display = 'none';
       appShell.style.display = '';
       _recordLogin(user);
