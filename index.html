@@ -92,6 +92,50 @@
   .hub-subtab { font: inherit; font-size: 13px; padding: 9px 14px; border: none; background: none; color: var(--text2); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
   .hub-subtab:hover { color: var(--text); }
   .hub-subtab.active { color: var(--brand-text); font-weight: 600; border-bottom-color: var(--brand); }
+  /* Dashboard de inicio */
+  #dash-home { display: flex; flex-direction: column; gap: 14px; margin-bottom: 6px; }
+  .dash-hello { margin: 0; font-size: 20px; font-weight: 650; color: var(--text); }
+  .dash-date { font-size: 13px; color: var(--text2); margin-top: 2px; }
+  .dash-card { background: var(--bg); border-radius: var(--radius-lg); padding: 16px 18px; box-shadow: var(--shadow); min-width: 0; }
+  .dash-card-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .dash-h { margin: 0 0 10px; font-size: 14px; font-weight: 650; color: var(--text); }
+  .dash-note { font-size: 12px; color: var(--text3); margin: -4px 0 10px; }
+  .dash-link { background: none; border: none; padding: 0; font: inherit; font-size: 12px; color: var(--brand-text); cursor: pointer; }
+  .dash-link:hover { text-decoration: underline; }
+  .dash-pend { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+  .dash-pend-item { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border2); background: var(--bg); text-align: left; font: inherit; color: var(--text); cursor: pointer; transition: background 0.12s; }
+  .dash-pend-item:hover { background: var(--bg2); }
+  .dash-pend-item.alert { border-color: rgba(191,97,106,0.35); background: rgba(191,97,106,0.06); }
+  .dash-pend-n { font-size: 24px; font-weight: 650; line-height: 1.1; }
+  .dash-pend-item.alert .dash-pend-n { color: var(--red-text); }
+  .dash-pend-label { font-weight: 600; font-size: 13px; }
+  .dash-pend-sub { font-size: 11.5px; color: var(--text2); }
+  .dash-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+  .dash-tile { background: var(--bg); border-radius: var(--radius-lg); padding: 14px 16px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .dash-tile-label { font-size: 12px; color: var(--text2); }
+  .dash-tile-value { font-size: 24px; font-weight: 650; color: var(--text); }
+  .dash-tile-sub { font-size: 12.5px; color: var(--text2); }
+  .dash-tile-sub b { color: var(--text); }
+  .dash-row { display: flex; flex-wrap: wrap; gap: 12px; }
+  .dash-bars { display: flex; align-items: flex-end; gap: 8px; height: 190px; padding-top: 18px; border-bottom: 1px solid var(--border2); }
+  .dash-bar-col { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; position: relative; min-width: 0; }
+  .dash-bar { width: 100%; max-width: 24px; background: #9DB3D3; border-radius: 4px 4px 0 0; }
+  .dash-bar.last { background: #4673B5; }
+  .dash-bar.partial { background: #D5DEEA; }
+  .dash-bar-val { font-size: 10.5px; color: var(--text2); margin-bottom: 3px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .dash-bar-lbl { position: absolute; bottom: -18px; font-size: 10px; color: var(--text3); white-space: nowrap; }
+  .dash-bars + * { margin-top: 22px; }
+  .dash-card .dash-bars { margin-bottom: 20px; }
+  .dash-chg-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; }
+  .dash-chg-h { font-size: 12px; font-weight: 600; color: var(--text2); margin-bottom: 4px; }
+  .dash-chg { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-top: 1px solid var(--border); font-size: 13px; }
+  .dash-chg span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dash-chg-v { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .dash-ia { display: flex; gap: 8px; margin-bottom: 10px; }
+  .dash-ia input { flex: 1; min-width: 0; padding: 9px 11px; border: 1px solid var(--border2); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; font-size: 13px; }
+  .dash-ia-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .dash-chip { font: inherit; font-size: 12px; padding: 5px 10px; border-radius: 16px; border: 1px solid var(--border2); background: var(--bg2); color: var(--text2); cursor: pointer; }
+  .dash-chip:hover { color: var(--text); }
   /* Evolución de Precios: barras divergentes por categoría + tooltip de los gráficos */
   .ph-bars { display: flex; flex-direction: column; gap: 2px; }
   .ph-bar-row { display: grid; grid-template-columns: minmax(130px, 210px) 1fr 92px; align-items: center; gap: 12px; padding: 6px 8px; border-radius: var(--radius); cursor: pointer; }
@@ -693,6 +737,7 @@
 
       <!-- DASHBOARD -->
       <div id="tab-dashboard" class="tab-pane tab-active">
+        <div id="dash-home"></div>
         <div class="metrics" id="metrics-grid"></div>
         <div class="alert-section">
           <div class="section-header">
@@ -1763,7 +1808,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '11.10.26.4';
+const APP_VERSION = '11.10.26.5';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -5152,6 +5197,7 @@ function renderRebatesTable() {
 
 // ─── DASHBOARD ────────────────────────────────────────
 function renderDashboard() {
+  try { renderDashboardHome(); } catch(e) { console.warn('[Dashboard] inicio:', e); } // si falla, lo de abajo (rebates) se muestra igual
   const sorActive = db.sor.filter(x => !['Reclamado','Cobrado'].includes(x.status));
   const sorUrgent = sorActive.filter(x => x.programEnd && daysUntil(x.programEnd) <= 0).sort((a,b)=>daysUntil(a.programEnd)-daysUntil(b.programEnd));
   const sorWarning = sorActive.filter(x => x.programEnd && daysUntil(x.programEnd) > 0 && daysUntil(x.programEnd) <= 30).sort((a,b)=>daysUntil(a.programEnd)-daysUntil(b.programEnd));
@@ -5221,6 +5267,231 @@ function renderDashboard() {
         <span class="pill ${PILL_MAP[it.status]||'pill-gray'}">${esc(it.status)}</span>
       </div>`).join('');
   }
+}
+
+// ─── DASHBOARD: inicio con pendientes, números de la semana y gráficos ──────
+// Todo sale de datos ya cargados (db, priceList, historial de precios): no suma descargas.
+// Si algo de acá falla, el resto del Dashboard (rebates) se sigue mostrando igual.
+const _dashFmt = v => Math.round(v).toLocaleString('es-AR');
+const _dashUSD = v => 'USD ' + Math.round(v).toLocaleString('es-AR');
+const _dashCompact = v => v >= 10000 ? Math.round(v / 1000) + 'k' : v >= 1000 ? (v / 1000).toLocaleString('es-AR', { maximumFractionDigits: 1 }) + 'k' : String(Math.round(v));
+// Sell-out por distribuidor y semana (lunes). Mismo criterio que Top Movers: cada reporte de ventas es
+// una semana; si una semana se subió más de una vez, cuenta la última subida (no se duplica). Los reportes
+// históricos de varios meses se reparten por la fecha de cada fila, solo en semanas sin reporte propio.
+function _dashWeeklySales() {
+  const byDist = {};
+  Object.keys(DISTRIBUTORS).forEach(dk => {
+    const weeks = new Map(); // lunes → { qty, usd, up }
+    const snaps = db.weeklyReports.filter(s => s.distributor === dk && s.reportType === 'sales' && typeof s.periodEnd === 'string');
+    const sum = rows => rows.reduce((a, r) => { if(_isNBVariant(r.description)) return a; a.qty += r.qty || 0; a.usd += (r.qty || 0) * Math.abs(r.avgPrice || 0); return a; }, { qty: 0, usd: 0 });
+    // Histórico de varias semanas = cubre más de 10 días (un reporte semanal que cruza fin de mes NO lo es)
+    const multi = s => typeof s.periodStart === 'string' && (new Date(s.periodEnd) - new Date(s.periodStart)) > 10 * DAY_MS;
+    snaps.filter(s => !multi(s)).forEach(s => {
+      const wk = reportWeekMonday(s.periodEnd, 'sales');
+      const prev = weeks.get(wk);
+      if(prev && String(prev.up) > String(s.uploadedAt || '')) return;
+      weeks.set(wk, { ...sum(s.rows || []), up: s.uploadedAt || '' });
+    });
+    snaps.filter(multi).forEach(s => {
+      const tmp = new Map();
+      (s.rows || []).forEach(r => { const wk = r.date ? mondayOf(String(r.date).slice(0,10)) : reportWeekMonday(s.periodEnd, 'sales'); if(!tmp.has(wk)) tmp.set(wk, []); tmp.get(wk).push(r); });
+      tmp.forEach((rows, wk) => { if(!weeks.has(wk)) weeks.set(wk, { ...sum(rows), up: '' }); });
+    });
+    byDist[dk] = weeks;
+  });
+  return byDist;
+}
+function _dashLatestStock() {
+  const out = {};
+  Object.keys(DISTRIBUTORS).forEach(dk => {
+    const snap = db.weeklyReports.filter(s => s.distributor === dk && s.reportType === 'stock')
+      .sort((a,b) => String(b.periodEnd||'').localeCompare(String(a.periodEnd||'')) || String(b.uploadedAt||'').localeCompare(String(a.uploadedAt||'')))[0];
+    if(snap) out[dk] = { qty: (snap.rows || []).reduce((s, r) => s + Math.max(0, r.qty || 0), 0), date: snap.periodEnd };
+  });
+  return out;
+}
+function renderDashboardHome() {
+  const el = document.getElementById('dash-home');
+  if(!el) return;
+  const user = (typeof _fbAuth !== 'undefined' && _fbAuth.currentUser) || null;
+  const first = (user && (user.displayName || '').split(' ')[0]) || '';
+  const now = new Date();
+  const h = now.getHours();
+  const hello = h < 13 ? 'Buen día' : h < 20 ? 'Buenas tardes' : 'Buenas noches';
+  const today = now.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
+
+  // ── Pendientes de hoy
+  const sorUrgent = db.sor.filter(x => !['Reclamado','Cobrado'].includes(x.status) && x.programEnd && daysUntil(x.programEnd) <= 0).length;
+  const unsigned = db.pi.filter(p => p.status === 'Enviado al cliente');
+  const unsignedOld = unsigned.filter(p => p.salesOrderDate && (Date.now() - new Date(p.salesOrderDate).getTime()) > 7 * DAY_MS).length;
+  const lateDists = Object.keys(DISTRIBUTORS).filter(dk => ['sales','stock'].some(t => {
+    const latest = db.weeklyReports.filter(s => s.distributor === dk && s.reportType === t && typeof s.periodEnd === 'string')
+      .sort((a,b) => b.periodEnd.localeCompare(a.periodEnd))[0];
+    return !latest || Math.floor((Date.now() - new Date(latest.periodEnd).getTime()) / DAY_MS) > 8;
+  }));
+  let lowStock = 0, arriving = [];
+  try {
+    const sf = buildSemaforoData();
+    lowStock = sf.products.filter(p => !p.isTransitOnly && SF_DIST_KEYS.reduce((s, dk) => s + (p.distQty[dk] || 0), 0) < 10).length;
+  } catch(e) { console.warn('[Dashboard] semáforo', e); }
+  arriving = db.pi.filter(p => _piInTransit(p)).filter(p => { const ms = _piTransitExpiresInMs(p); return ms !== Infinity && ms <= 7 * DAY_MS; });
+  const pend = [
+    { n: sorUrgent, label: 'SOR vencidas sin reclamar', sub: 'Ir a Rebates', go: "gotoTab('rebates')", alert: sorUrgent > 0 },
+    { n: unsigned.length, label: 'Órdenes sin firmar', sub: unsignedOld ? `${unsignedOld} con más de 7 días` : 'Ir a Órdenes', go: "gotoTab('pi')", alert: unsignedOld > 0 },
+    { n: `${lateDists.length} de ${Object.keys(DISTRIBUTORS).length}`, label: 'Distribuidores con reportes atrasados', sub: lateDists.length ? lateDists.map(dk => DISTRIBUTORS[dk]).join(' · ') : 'Todos al día', go: "gotoTab('rotation')", alert: lateDists.length > 0 },
+    { n: lowStock, label: 'Modelos con stock bajo', sub: 'Menos de 10 u. en el canal · Semáforo', go: "gotoTab('semaforo')", alert: false },
+    { n: arriving.length, label: 'Órdenes que llegan esta semana', sub: 'En tránsito · ver detalle', go: "gotoTab('semaforo');setSemaforoTransitView(true)", alert: false },
+  ];
+
+  // ── Sell-out y stock
+  const weekly = _dashWeeklySales();
+  const allWeeks = [...new Set(Object.values(weekly).flatMap(m => [...m.keys()]))].sort();
+  const lastWk = allWeeks[allWeeks.length - 1];
+  const prevWk = lastWk ? (() => { const d = new Date(lastWk + 'T00:00:00'); d.setDate(d.getDate() - 7); return d.toISOString().slice(0,10); })() : null;
+  const withLast = Object.keys(DISTRIBUTORS).filter(dk => weekly[dk].has(lastWk));
+  const tot = (wk, dks) => dks.reduce((a, dk) => { const w = weekly[dk].get(wk); if(w) { a.qty += w.qty; a.usd += w.usd; } return a; }, { qty: 0, usd: 0 });
+  const cur = lastWk ? tot(lastWk, withLast) : { qty: 0, usd: 0 };
+  const prevSame = prevWk ? tot(prevWk, withLast.filter(dk => weekly[dk].has(prevWk))) : { qty: 0 };
+  const curSame = prevWk ? tot(lastWk, withLast.filter(dk => weekly[dk].has(prevWk))) : { qty: 0 };
+  const delta = prevSame.qty > 0 ? (curSame.qty - prevSame.qty) / prevSame.qty * 100 : null;
+  // Promedio semanal de las últimas 4 semanas, por distribuidor (para la cobertura)
+  const last4 = allWeeks.slice(-4);
+  const avgWeekly = dk => { const ws = last4.map(wk => weekly[dk].get(wk)).filter(Boolean); return ws.length ? ws.reduce((s, w) => s + w.qty, 0) / ws.length : 0; };
+  const stock = _dashLatestStock();
+  const stockTotal = Object.values(stock).reduce((s, x) => s + x.qty, 0);
+  const avgTotal = Object.keys(stock).reduce((s, dk) => s + avgWeekly(dk), 0);
+  const coverage = avgTotal > 0 ? stockTotal / avgTotal : null;
+
+  // ── Órdenes del mes
+  const mk = now.toISOString().slice(0,7);
+  const monthPIs = db.pi.filter(p => String(p.salesOrderDate || p.createdAt || '').slice(0,7) === mk);
+  const monthUSD = monthPIs.reduce((s, p) => s + Math.abs(Number(p.amount) || 0), 0);
+  const delivered = monthPIs.filter(p => p.status === 'Entregado').length;
+
+  // ── Últimas 12 semanas (total de los distribuidores con reporte)
+  const w12 = allWeeks.slice(-12).map(wk => {
+    const dks = Object.keys(DISTRIBUTORS).filter(dk => weekly[dk].has(wk));
+    return { wk, qty: tot(wk, dks).qty, dks };
+  });
+  const expected = Object.keys(DISTRIBUTORS).filter(dk => w12.some(w => w.dks.includes(dk))).length;
+
+  const fmtWk = wk => { const [y,m,d] = wk.split('-'); return `${d}/${m}`; };
+  const tile = (label, value, sub) => `<div class="dash-tile"><span class="dash-tile-label">${label}</span><span class="dash-tile-value">${value}</span><span class="dash-tile-sub">${sub}</span></div>`;
+  const pctTxt = v => v == null ? '' : `${v > 0 ? '▲ +' : v < 0 ? '▼ ' : ''}${v.toLocaleString('es-AR', { maximumFractionDigits: 1 })}%`;
+
+  const maxQ = Math.max(1, ...w12.map(w => w.qty));
+  const bars = w12.map((w, i) => {
+    const isLast = i === w12.length - 1, partial = w.dks.length < expected;
+    const missing = Object.keys(DISTRIBUTORS).filter(dk => !w.dks.includes(dk) && (expected === 0 || w12.some(x => x.dks.includes(dk))));
+    const tip = `Semana del ${fmtWk(w.wk)}: ${_dashFmt(w.qty)} u.` + (partial ? ` · sin reporte de ${missing.map(dk => DISTRIBUTORS[dk]).join(', ')}` : '');
+    return `<div class="dash-bar-col" title="${esc(tip)}">
+      <span class="dash-bar-val">${_dashCompact(w.qty)}</span>
+      <div class="dash-bar${isLast ? ' last' : ''}${partial ? ' partial' : ''}" style="height:${Math.max(2, w.qty / maxQ * 100)}%"></div>
+      <span class="dash-bar-lbl">${fmtWk(w.wk)}</span>
+    </div>`;
+  }).join('');
+
+  const distRows = Object.keys(DISTRIBUTORS).map(dk => {
+    const c = weekly[dk].get(lastWk), p = prevWk ? weekly[dk].get(prevWk) : null;
+    const d = c && p && p.qty > 0 ? (c.qty - p.qty) / p.qty * 100 : null;
+    const avg = avgWeekly(dk);
+    const cov = stock[dk] && avg > 0 ? stock[dk].qty / avg : null;
+    return `<tr>
+      <td>${esc(DISTRIBUTORS[dk])}</td>
+      <td style="text-align:right">${c ? _dashFmt(c.qty) + ' u.' : '<span style="color:var(--text3)">sin reporte</span>'}${d != null ? ` <span style="color:var(--text3);font-size:11px">${pctTxt(d)}</span>` : ''}</td>
+      <td style="text-align:right">${cov != null ? cov.toLocaleString('es-AR', { maximumFractionDigits: 1 }) + ' sem.' : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  const canIA = canAccessTab('ia');
+  // Se redibuja con cada cambio en vivo: conservar lo que se estaba escribiendo para LuckIA
+  const prevQ = document.getElementById('dash-ia-q'), prevVal = prevQ ? prevQ.value : '', hadFocus = prevQ && document.activeElement === prevQ;
+  el.innerHTML = `
+    <div class="dash-head">
+      <div><h2 class="dash-hello">${hello}${first ? ', ' + esc(first) : ''}</h2>
+      <div class="dash-date">${esc(today.charAt(0).toUpperCase() + today.slice(1))} · lo que pide atención hoy y cómo viene la semana</div></div>
+    </div>
+    <section class="dash-card">
+      <h3 class="dash-h">Pendientes de hoy</h3>
+      <div class="dash-pend">${pend.map(p => `<button class="dash-pend-item${p.alert ? ' alert' : ''}" onclick="${p.go}">
+        <span class="dash-pend-n">${p.n}</span><span class="dash-pend-label">${p.label}</span><span class="dash-pend-sub">${esc(p.sub)} →</span></button>`).join('')}</div>
+    </section>
+    <section class="dash-tiles">
+      ${tile(lastWk ? `Sell-out · semana del ${fmtWk(lastWk)}` : 'Sell-out de la semana', lastWk ? _dashFmt(cur.qty) + ' u.' : '—',
+        lastWk ? `${_dashUSD(cur.usd)}${delta != null ? ` · <b>${pctTxt(delta)}</b> vs. anterior` : ''}${withLast.length < Object.keys(DISTRIBUTORS).length ? ` · ${withLast.length} de ${Object.keys(DISTRIBUTORS).length} distribuidores` : ''}` : 'Sin reportes de ventas cargados')}
+      ${tile('Stock en el canal', stockTotal ? _dashFmt(stockTotal) + ' u.' : '—', coverage != null ? `<b>${coverage.toLocaleString('es-AR', { maximumFractionDigits: 1 })} semanas</b> de cobertura al ritmo de las últimas 4` : 'Sin reportes de stock')}
+      ${tile('Órdenes del mes', _dashUSD(monthUSD), `${monthPIs.length} ${monthPIs.length === 1 ? 'orden' : 'órdenes'} · ${delivered} entregada${delivered === 1 ? '' : 's'}`)}
+      <div class="dash-tile" id="dash-price-tile"><span class="dash-tile-label">Cambios de lista · últimos 7 días</span><span class="dash-tile-value">…</span><span class="dash-tile-sub">&nbsp;</span></div>
+    </section>
+    <div class="dash-row">
+      <section class="dash-card" style="flex:2 1 460px">
+        <div class="dash-card-top"><h3 class="dash-h">Sell-out · últimas ${w12.length} semanas</h3><button class="dash-link" onclick="gotoTab('rotation')">Inventario y rotación →</button></div>
+        <div class="dash-note">Unidades por semana, suma de los distribuidores. Las semanas más claras están incompletas (falta algún reporte): pasá el mouse para ver cuál.</div>
+        ${w12.length ? `<div class="dash-bars">${bars}</div>` : '<div class="dash-note">Todavía no hay reportes de ventas cargados.</div>'}
+      </section>
+      <section class="dash-card" style="flex:1 1 320px">
+        <h3 class="dash-h">Por distribuidor${lastWk ? ' · semana del ' + fmtWk(lastWk) : ''}</h3>
+        <div class="table-scroll"><table class="data-table" style="font-size:13px"><thead><tr><th>Distribuidor</th><th style="text-align:right">Sell-out</th><th style="text-align:right">Cobertura</th></tr></thead><tbody>${distRows}</tbody></table></div>
+      </section>
+    </div>
+    <div class="dash-row">
+      <section class="dash-card" style="flex:2 1 460px" id="dash-price-card">
+        <div class="dash-card-top"><h3 class="dash-h">Cambios de lista de la semana</h3>${canAccessTab('pricetrend') && _tabVisibleForRole('pricetrend') ? `<button class="dash-link" onclick="gotoTab('pricetrend')">Evolución de Precios →</button>` : ''}</div>
+        <div class="dash-note">Cargando…</div>
+      </section>
+      ${canIA ? `<section class="dash-card" style="flex:1 1 320px">
+        <h3 class="dash-h">Preguntale a LuckIA</h3>
+        <label for="dash-ia-q" class="dash-note" style="display:block">Ventas, clientes, precios y fichas técnicas</label>
+        <form class="dash-ia" onsubmit="event.preventDefault();_dashAskIA(document.getElementById('dash-ia-q').value)">
+          <input id="dash-ia-q" type="text" placeholder="Ej.: ¿quién compró más 5090 este mes?" autocomplete="off" />
+          <button class="btn btn-primary" type="submit">Preguntar</button>
+        </form>
+        <div class="dash-ia-chips">${['Top 5 clientes del mes', 'Fuentes Platinum en lista y su precio', 'Compará el sell-out de INVID vs ELIT este mes'].map(q => `<button class="dash-chip" onclick="_dashAskIA('${esc(q)}')">${esc(q)}</button>`).join('')}</div>
+      </section>` : ''}
+    </div>
+    <h3 class="dash-h" style="margin:8px 0 10px">Rebates</h3>`;
+  const q = document.getElementById('dash-ia-q');
+  if(q && prevVal) q.value = prevVal;
+  if(q && hadFocus) q.focus();
+  _dashRenderPriceChanges();
+}
+// Cambios de la lista en los últimos 7 días (historial de precios; se carga aparte)
+async function _dashRenderPriceChanges() {
+  const card = document.getElementById('dash-price-card'), tileEl = document.getElementById('dash-price-tile');
+  let data = null;
+  try { data = await _phLoad(); } catch(e) {}
+  if(!card) return;
+  const note = card.querySelector('.dash-note');
+  if(!data || !data.items) {
+    if(note) note.textContent = 'Todavía no hay historial de precios.';
+    if(tileEl) tileEl.querySelector('.dash-tile-value').textContent = '—';
+    return;
+  }
+  const checks = (data.checks || []).slice().sort();
+  const last = checks[checks.length - 1];
+  const since = new Date(_phDayMs(last) - 7 * 86400e3).toISOString().slice(0,10);
+  const ch = [];
+  Object.values(data.items).forEach(it => it.p.forEach(([d, p], i) => { if(i && d > since) ch.push({ n: it.n, from: it.p[i-1][1], to: p, pct: (p - it.p[i-1][1]) / it.p[i-1][1] * 100 }); }));
+  const up = ch.filter(c => c.pct > 0).sort((a,b) => b.pct - a.pct), down = ch.filter(c => c.pct < 0).sort((a,b) => a.pct - b.pct);
+  if(tileEl) {
+    tileEl.querySelector('.dash-tile-value').textContent = ch.length;
+    tileEl.querySelector('.dash-tile-sub').innerHTML = ch.length ? `<span style="color:${PH_UP}" aria-hidden="true">▲</span> ${up.length} subieron · <span style="color:${PH_DOWN}" aria-hidden="true">▼</span> ${down.length} bajaron` : 'Sin cambios';
+  }
+  const list = (arr, sym, color) => arr.slice(0, 3).map(c => `<div class="dash-chg"><span>${esc(c.n)}</span><span class="dash-chg-v"><span style="color:var(--text3)">${_dashFmt(c.from)} → </span><b>${_dashFmt(c.to)}</b> · ${_phPct(c.pct)}</span></div>`).join('') || '<div class="dash-note">Sin cambios.</div>';
+  if(note) note.outerHTML = ch.length ? `<div class="dash-chg-grid">
+      <div><div class="dash-chg-h"><span style="color:${PH_UP}" aria-hidden="true">▲</span> Más subieron</div>${list(up)}</div>
+      <div><div class="dash-chg-h"><span style="color:${PH_DOWN}" aria-hidden="true">▼</span> Más bajaron</div>${list(down)}</div>
+    </div><div class="dash-note" style="margin-top:8px">Precio de lista LATAM en USD, del ${_phFmtDay(since)} al ${_phFmtDay(last)}.</div>`
+    : '<div class="dash-note">La lista no cambió en los últimos 7 días.</div>';
+}
+function _dashAskIA(q) {
+  q = String(q || '').trim();
+  if(!q || !canAccessTab('ia')) return;
+  gotoTab('ia');
+  const input = document.getElementById('ai-chat-input');
+  if(!input) return;
+  input.value = q;
+  sendAiChatMessage();
 }
 
 // ─── LISTA DE PRECIOS ─────────────────────────────────
