@@ -569,7 +569,7 @@
         <input type="password" id="api-key-input" placeholder="sk-ant-..." oninput="saveApiKey()" />
       </div>
       <div style="font-size:10px;color:var(--text3);margin-top:8px;text-align:center">
-        v<span id="app-version-label"></span>
+        <span onclick="if(_currentRole==='admin')_showLoadStats()" title="Admin: tocá para ver el medidor de carga">v<span id="app-version-label"></span></span>
         · <span id="app-country-label" style="font-size:12px" title="País activo"></span>
       </div>
       <button class="btn" onclick="signOut()" style="width:100%;font-size:11px;justify-content:center;margin-top:6px;color:var(--text3)"><i class="ti ti-logout" style="font-size:13px"></i> Cerrar sesión</button>
@@ -1628,11 +1628,7 @@
 <!-- Librerías de export/lectura — solo se usan al hacer click en botones específicos,
      nunca durante el arranque de la app, así que se cargan en paralelo sin bloquear
      el parseo del script principal (defer). -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
-<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js" defer></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" defer></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js" defer></script>
+<!-- XLSX / ExcelJS / PDF.js / jsPDF (~2,5 MB) ya no se cargan al abrir la página: ver _ensureLibs() -->
 <script>
 // ─── CONFIG ───────────────────────────────────────────
 const PIPES = {
@@ -1668,7 +1664,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '09.10.26.3';
+const APP_VERSION = '11.10.26.1';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -1808,6 +1804,12 @@ async function loadDB() {
     const old = localStorage.getItem(key);
     if (old) { try { await IDB.set(key, old); localStorage.removeItem(key); } catch(e) {} }
   }
+  // Lecturas sin listener de tiempo real: arrancan todas ya, en paralelo (antes iban una detrás de otra)
+  const _pre = {
+    meta:  _syncGet('salesops_meta').catch(()=>null),
+    pl:    _syncGet('salesops_pricelist').catch(()=>null),
+    specs: _syncGet('salesops_specs').catch(()=>null),
+  };
   // ── Load db: try split storage first (new), fall back to monolith (legacy) ──
   // Split storage: each pipeline in its own Firebase key to stay under 10MB limit.
   try {
@@ -1841,7 +1843,7 @@ async function loadDB() {
       db.weeklyReports = wkR    ? JSON.parse(wkR)    : [];
       db.imports       = impR   ? JSON.parse(impR)   : [];
       // Load migrations flag separately so runOneTimeMigrations() doesn't re-run destructive steps
-      const metaR = await IDB.get('salesops_meta').catch(()=>null);
+      const metaR = await _pre.meta;
       if(metaR) { try { const m=JSON.parse(metaR); db._migrations=m._migrations||{}; } catch(e){} }
       // ── Auto-recovery: if weeklyReports looks wiped, restore from legacy monolith backup ──
       // salesops_db is never overwritten by the new split saveDB(), so it still has old data.
@@ -1881,7 +1883,7 @@ async function loadDB() {
   if (!db.imports) db.imports = [];
   // Load resellers config
   try {
-    const resRaw = await IDB.get('salesops_resellers').catch(()=>null);
+    const resRaw = await _syncGet('salesops_resellers').catch(()=>null);
     if(resRaw) {
       const resData = JSON.parse(resRaw);
       db.resellers = resData.resellers || { t1:[], t2:[], t3:[] };
@@ -1898,15 +1900,15 @@ async function loadDB() {
   } catch(e) { console.warn('Error cargando resellers:', e); }
   try { const arRaw = await _idbGetYear('salesops_ar').catch(()=>null); if(arRaw) db.ar = JSON.parse(arRaw); } catch(e) {}
   try { const mktRaw = await _idbGetYear('salesops_mkt').catch(()=>null); if(mktRaw) db.mkt = JSON.parse(mktRaw); } catch(e) {}
-  try { const p = await IDB.get('salesops_pricelist'); if(p) priceList = JSON.parse(p); } catch(e) {}
-  try { const sp = await IDB.get('salesops_specs'); if(sp) { productSpecs = JSON.parse(sp); _specIndexCache = null; } } catch(e) {}
+  try { const p = await _pre.pl; if(p) priceList = JSON.parse(p); } catch(e) {}
+  try { const sp = await _pre.specs; if(sp) { productSpecs = JSON.parse(sp); _specIndexCache = null; } } catch(e) {}
   if (!priceList.lastDiff) priceList.lastDiff = null;
   if (!priceList.prevSourceFile) priceList.prevSourceFile = null;
 }
 // Carga una clave con fallback a la clave legacy (sin año) para migración 2026→año-keyed.
 // En 2027+ no hace fallback: arranca limpio sin datos del año anterior.
 async function _idbGetYear(base) {
-  const r = await IDB.get(_yk(base)).catch(() => null);
+  const r = await _syncGet(_yk(base)).catch(() => null);
   if (r !== null) return r;
   if (DATA_YEAR === 2026) return IDB.get(base).catch(() => null);
   return null;
@@ -2011,11 +2013,63 @@ function saveDB() {
 // Listeners Firebase que mantienen db sincronizado cuando OTRO usuario modifica datos.
 let _syncReady = false;   // false durante carga inicial — evita toast/re-renders redundantes
 let _syncListeners = {};  // refs para poder desconectar si es necesario
+// Primera lectura de cada nodo sincronizado. Antes loadDB() bajaba todo con get() y después
+// el .on('value') de acá lo volvía a bajar ENTERO (doble descarga de la base en cada login).
+// Ahora los listeners se enganchan antes de loadDB() y su primer evento es la carga inicial.
+let _syncFirst = {};      // key → Promise(valor del primer evento; undefined si el listener falló)
+let _syncPending = {};    // key → último valor llegado DURANTE la carga (se aplica al terminar)
+let _syncApplyByKey = {}; // key → { apply, render }
+
+// Medidor de carga (se ve en la consola y, para admin, tocando la versión abajo a la izquierda)
+let _loadStats = [], _loadT0 = 0;
+function _loadStatRecord(key, raw, t0) {
+  const bytes = raw == null ? 0 : (typeof raw === 'string' ? raw.length : JSON.stringify(raw).length);
+  _loadStats.push({ key, kb: Math.round(bytes / 1024), ms: Math.round(performance.now() - t0) });
+}
+// Lee un nodo: si hay listener de tiempo real, usa su primer evento (sin segunda descarga)
+async function _syncGet(key) {
+  if(_syncFirst[key] && !_syncReady) { // solo durante la carga inicial; después siempre lee fresco
+    const v = await _syncFirst[key];
+    if(v !== undefined) return v;
+  }
+  const t0 = performance.now();
+  const r = await IDB.get(key);
+  if(_loadT0 && !_syncReady) _loadStatRecord(key, r, t0); // solo la carga inicial
+  return r;
+}
+// Fin de la carga inicial: desde acá los cambios de otros usuarios re-renderizan. Lo que llegó
+// mientras cargaba se aplica ahora (si no, loadDB() lo habría pisado con el valor inicial).
+function _syncGoLive() {
+  _syncReady = true;
+  const pending = _syncPending; _syncPending = {};
+  Object.entries(pending).forEach(([key, raw]) => {
+    const cfg = _syncApplyByKey[key];
+    if(!cfg) return;
+    try { cfg.apply(raw); cfg.render(); } catch(e) { console.warn('[Sync] Error aplicando cambio pendiente', key, e); }
+  });
+  if(_loadT0) {
+    const total = Math.round(performance.now() - _loadT0);
+    const kb = _loadStats.reduce((s, x) => s + x.kb, 0);
+    console.info(`[Carga] ${(total/1000).toFixed(1)} s · ${(kb/1024).toFixed(1)} MB`);
+    console.table(_loadStats.slice().sort((a,b) => b.kb - a.kb));
+    _loadStats.totalMs = total;
+  }
+}
+function _showLoadStats() {
+  if(!_loadStats.length) { toast('Todavía no hay datos de carga.'); return; }
+  const kb = _loadStats.reduce((s, x) => s + x.kb, 0);
+  const rows = _loadStats.slice().sort((a,b) => b.kb - a.kb)
+    .map(x => `<tr><td style="font-family:monospace;font-size:11px">${esc(x.key)}</td><td style="text-align:right">${x.kb >= 1024 ? (x.kb/1024).toFixed(1) + ' MB' : x.kb + ' KB'}</td><td style="text-align:right">${(x.ms/1000).toFixed(1)} s</td></tr>`).join('');
+  // _alert respeta saltos de línea (pre-wrap): el HTML va en una sola línea
+  _alert(`<div style="margin-bottom:8px">Carga inicial: <b>${((_loadStats.totalMs||0)/1000).toFixed(1)} s</b> · <b>${(kb/1024).toFixed(1)} MB</b> descargados</div><table class="data-table" style="font-size:12px;white-space:normal"><thead><tr><th>Dato</th><th style="text-align:right">Tamaño</th><th style="text-align:right">Llegó a los</th></tr></thead><tbody>${rows}</tbody></table>`,
+    { type:'info', title:'Medidor de carga' });
+}
 
 function _startRealtimeSync() {
-  // Marcar como listo después de que los eventos iniciales hayan disparado
-  // (los .on() disparan una vez inmediatamente con el valor actual de Firebase)
-  setTimeout(() => { _syncReady = true; }, 2500);
+  // Si ya había listeners (re-login sin recargar), se desconectan para no duplicarlos
+  Object.entries(_syncListeners).forEach(([key, fn]) => { try { _fbDB.ref(key).off('value', fn); } catch(e) {} });
+  _syncListeners = {}; _syncFirst = {}; _syncPending = {}; _syncApplyByKey = {};
+  _syncReady = false;
 
   const syncConfig = [
     {
@@ -2116,16 +2170,26 @@ function _startRealtimeSync() {
   ];
 
   syncConfig.forEach(({ key, apply, render }) => {
+    _syncApplyByKey[key] = { apply, render };
+    let first = true, resolveFirst;
+    const t0 = performance.now();
+    _syncFirst[key] = new Promise(r => { resolveFirst = r; });
     const listener = _fbDB.ref(key).on('value', snap => {
       const raw = snap.exists() ? snap.val() : null;
+      // Primer evento = carga inicial: lo procesa loadDB() (mismo parseo que antes)
+      if(first) { first = false; if(_loadT0) _loadStatRecord(key, raw, t0); resolveFirst(raw); return; }
       if(!raw) return;
+      if(!_syncReady) { _syncPending[key] = raw; return; } // llegó mientras cargaba → se aplica en _syncGoLive()
       try {
         apply(raw);
-        if(!_syncReady) return;          // evento inicial — datos ya cargados, no hacer nada más
         if(_isSavingLocally) return;     // evento de mi propio guardado — ignorar
         render();
         _showSyncToast();
       } catch(e) { console.warn('[Sync] Error procesando', key, e); }
+    }, err => {
+      // Sin permiso / error: loadDB() cae a una lectura normal (mismo resultado que antes)
+      console.warn('[Sync] Listener cancelado', key, err && err.message);
+      if(first) { first = false; resolveFirst(undefined); }
     });
     _syncListeners[key] = listener;
   });
@@ -2693,7 +2757,53 @@ async function resetEtailersData() {
 // ─── EXPORTACIÓN GENÉRICA A EXCEL Y PDF ──────────────
 // Todas las tablas de la app exportan a estos dos formatos (ya no a CSV).
 // `rows` es un array de arrays con los valores ya formateados como texto/número.
+// ─── LIBRERÍAS PESADAS BAJO DEMANDA ──────────────────────────────────────────
+// Antes se descargaban y compilaban en cada apertura aunque no se exportara nada. Ahora arrancan
+// a cargar al iniciar sesión (en paralelo con la descarga de la base, que es la espera larga) y
+// cada función que las usa espera con _ensureLibs() / _needLibs() por si todavía no terminaron.
+const _LIBS = [
+  'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
+  'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
+  // autotable necesita jsPDF ya cargado → en orden
+  ['https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js'],
+];
+let _libsPromise = null, _libsLoaded = false;
+function _loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const el = document.createElement('script');
+    el.src = src;
+    el.onload = resolve;
+    el.onerror = () => { el.remove(); reject(new Error('No se pudo cargar ' + src.split('/').pop())); };
+    document.head.appendChild(el);
+  });
+}
+function _ensureLibs() {
+  if(!_libsPromise) {
+    _libsPromise = Promise.all(_LIBS.map(x => Array.isArray(x)
+      ? x.reduce((p, u) => p.then(() => _loadScript(u)), Promise.resolve())
+      : _loadScript(x)))
+      .then(() => { _libsLoaded = true; })
+      .catch(e => { _libsPromise = null; throw e; }); // permite reintentar si falló la red
+  }
+  return _libsPromise;
+}
+// Para botones de exportar/cargar (async): espera las librerías; si no cargan, avisa y corta
+async function _libsOk() {
+  try { await _ensureLibs(); return true; }
+  catch(e) { _alert('No se pudieron cargar las librerías de Excel/PDF: ' + e.message + '. Revisá la conexión y volvé a intentar.', {type:'error'}); return false; }
+}
+// Para funciones sincrónicas: si faltan las librerías, las carga y vuelve a llamar a la función
+function _needLibs(fn, args) {
+  if(_libsLoaded) return false;
+  toast('Preparando exportación...');
+  _ensureLibs().then(() => fn.apply(null, args))
+    .catch(e => _alert('No se pudieron cargar las librerías de Excel/PDF: ' + e.message + '. Revisá la conexión y volvé a intentar.', {type:'error'}));
+  return true;
+}
+
 function exportTableToExcel(filename, sheetName, headers, rows) {
+  if(_needLibs(exportTableToExcel, arguments)) return;
   if(!window.XLSX) { _alert('La librería de Excel no cargó. Revisá la conexión a internet y volvé a intentarlo.', {type:'error'}); return; }
   const data = [headers, ...rows];
   const ws = XLSX.utils.aoa_to_sheet(data);
@@ -2707,6 +2817,7 @@ function exportTableToExcel(filename, sheetName, headers, rows) {
   XLSX.writeFile(wb, filename.endsWith('.xlsx') ? filename : filename+'.xlsx');
 }
 function exportTableToPDF(filename, title, subtitle, headers, rows) {
+  if(_needLibs(exportTableToPDF, arguments)) return;
   if(!window.jspdf) { _alert('La librería de PDF no cargó. Revisá la conexión a internet y volvé a intentarlo.', {type:'error'}); return; }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: headers.length > 6 ? 'landscape' : 'portrait', unit: 'pt', format: 'a4' });
@@ -4267,6 +4378,7 @@ function parseInvoicePdfLines(lines) {
 }
 
 async function parsePIPdfFromBuffer(buf) {
+  await _ensureLibs();
   if(!window.pdfjsLib) throw new Error('La librería de lectura de PDF no cargó (revisá la conexión a internet).');
   await ensurePdfWorkerReady();
   const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
@@ -4287,6 +4399,7 @@ function ensurePdfWorkerReady() {
   if(_pdfWorkerReadyPromise) return _pdfWorkerReadyPromise;
   const workerUrl = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   _pdfWorkerReadyPromise = (async () => {
+    await _ensureLibs();
     if(!window.pdfjsLib) return;
     // Cargar el worker como blob evita el bloqueo de seguridad que aplican los navegadores
     // cuando el CRM se abre directamente como archivo (file://) en vez de servido por http(s).
@@ -4775,6 +4888,7 @@ function parseRebateSheet(rows, filename) {
   return { pipeline, disti, reseller, requestDate, programStart:start, programEnd:end, programName, creditNoteNum, customerClaimNum, totalClaimQty, items, creditTypeRaw };
 }
 async function parseRebateWorkbookFile(file) {
+  await _ensureLibs();
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, { type:'array', cellDates:true });
   const sheetName = wb.SheetNames.includes('clientes') ? 'clientes' : wb.SheetNames[0];
@@ -5091,6 +5205,7 @@ function parseLatamStockRows(rows, fileName, sheet) {
 }
 
 async function parsePriceListFile(file) {
+  await _ensureLibs();
   let wb;
   if(/\.csv$/i.test(file.name)) {
     const text=await file.text();
@@ -5507,6 +5622,7 @@ function renderStockChangelog(panel, entries) {
 }
 
 async function exportPriceListExcel() {
+  if(!await _libsOk()) return;
   const allItems = priceList.products || [];
   if(!allItems.filter(p=>!p.isSubSection).length) { _alert('No hay lista de precios cargada.', {type:'warning'}); return; }
   if(!window.ExcelJS) { _alert('ExcelJS no cargó. Revisá la conexión a internet.', {type:'error'}); return; }
@@ -5974,6 +6090,7 @@ function getProductSpecs(code, desc) {
       || null;
 }
 async function handleSpecFiles(fileList) {
+  if(!await _libsOk()) return;
   if(_currentRole !== 'admin') { _alert('Solo un administrador puede cargar fichas técnicas.', {type:'warning'}); return; }
   const files = [...(fileList || [])];
   if(!files.length) return;
@@ -6723,6 +6840,7 @@ function _obUpdateRemark(i, val) {
 }
 
 async function exportOrderToExcel() {
+  if(!await _libsOk()) return;
   if(!window.ExcelJS) { _alert('ExcelJS no cargó. Revisá la conexión a internet.', {type:'error'}); return; }
   const client = document.getElementById('ob-client').value.trim() || 'Cliente';
   const piNum  = document.getElementById('ob-pi-number').value.trim() || '';
@@ -7747,6 +7865,7 @@ function _showPIAlertToast(msg) {
 }
 
 async function exportSemaforoPDF() {
+  if(!await _libsOk()) return;
   if(!window.jspdf) { _alert('La librería de PDF no cargó. Revisá la conexión a internet.', {type:'error'}); return; }
   const { jsPDF } = window.jspdf;
 
@@ -9363,6 +9482,7 @@ function _pbmUpPickSuggest(cuit, name) {
 }
 
 function _pbmProcessUpload() {
+  if(_needLibs(_pbmProcessUpload, arguments)) return;
   const err = document.getElementById('pbm-up-err');
   const cuitSel = document.getElementById('pbm-up-cuit')?.value;
   const month = document.getElementById('pbm-up-month')?.value.trim();
@@ -9561,6 +9681,7 @@ function _pbmShowEvolution() {
 }
 
 async function _pbmExport() {
+  if(!await _libsOk()) return;
   const rep = _pbmActiveReport();
   if (!rep) return;
   const res = _pbmResellerByCuit(rep.cuit);
@@ -9663,6 +9784,7 @@ async function _pbmExport() {
 }
 
 function _pbmExportPDF() {
+  if(_needLibs(_pbmExportPDF, arguments)) return;
   const rep = _pbmActiveReport();
   if (!rep) return;
   const res = _pbmResellerByCuit(rep.cuit);
@@ -9827,6 +9949,7 @@ function _pbmShowExportModal() {
 }
 
 async function _pbmExportMulti(selections) {
+  if(!await _libsOk()) return;
   const NAVY = 'FF1F2A44', ORANGE = 'FFFF6600', WHITE = 'FFFFFFFF', GRAY = 'FFF5F5F5', RED = 'FFC0392B';
   const wb = new ExcelJS.Workbook();
   wb.creator = 'MSI SalesOps CRM';
@@ -9951,6 +10074,7 @@ async function _pbmExportMulti(selections) {
 }
 
 function _pbmExportMultiPDF(selections) {
+  if(_needLibs(_pbmExportMultiPDF, arguments)) return;
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({orientation:'landscape',unit:'pt',format:'a4'});
   const W = doc.internal.pageSize.width;
@@ -10351,6 +10475,7 @@ function parseDistributorSheet(rows, fmt, headerIdx, preambleText) {
   return { rows: aggRows, period };
 }
 async function parseOneDistributorFile(file) {
+  await _ensureLibs();
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, { type:'array', cellDates:true });
   const snapshots = [];
@@ -11021,6 +11146,7 @@ function parseMktBudgetFile(wb) {
 }
 
 async function handleMktFile(file) {
+  if(!await _libsOk()) return;
   try {
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type:'array', cellDates:false });
@@ -11571,6 +11697,7 @@ function _mktShowExportModal() {
 }
 
 async function _mktRunExport(data, qsList) {
+  if(!await _libsOk()) return;
   if(!window.ExcelJS) { _alert('ExcelJS no cargó. Revisá la conexión a internet.', {type:'error'}); return; }
   const NAVY = 'FF1F2A44', ORANGE = 'FFFF6600', WHITE = 'FFFFFFFF', GRAY = 'FFF5F5F5', ACCENT = 'FFFFF0E6';
   const BORDER = { top:{style:'thin',color:{argb:'FFCCCCCC'}}, left:{style:'thin',color:{argb:'FFCCCCCC'}}, bottom:{style:'thin',color:{argb:'FFCCCCCC'}}, right:{style:'thin',color:{argb:'FFCCCCCC'}} };
@@ -13502,6 +13629,7 @@ function getRotCompareExportData() {
   return { modelKey, monthKey, headers, rows: dataRows };
 }
 async function exportRotCompareSelectedExcel() {
+  if(!await _libsOk()) return;
   const modelKeys = _rotCompareSelectedModels.size
     ? Array.from(_rotCompareSelectedModels)
     : (document.getElementById('rotcompare-product').value ? [document.getElementById('rotcompare-product').value] : []);
@@ -14686,6 +14814,7 @@ function _toggleAllExportResellers(tier, checked) {
 }
 
 async function exportResellersToExcel(tier) {
+  if(!await _libsOk()) return;
   const checked = Array.from(document.querySelectorAll('.export-reseller-chk-' + tier + ':checked')).map(chk => chk.value);
   if(!checked.length) { toast('Marcá al menos un reseller para exportar.'); return; }
   if(!window.ExcelJS) { _alert('ExcelJS no cargó. Revisá la conexión a internet.', {type:'error'}); return; }
@@ -15938,6 +16067,7 @@ function extractRawTransactions(wb) {
   return null;
 }
 async function parseImportAnalysisFile(file) {
+  await _ensureLibs();
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, { type:'array', cellDates:true });
   const evoName = findEvolutionSheetName(wb.SheetNames);
@@ -16862,6 +16992,7 @@ function computeImporterBrandPivot(batch, monthFilterSet) {
 function _impK(n) { return (n == null) ? null : Math.round((n/1000)*10)/10; }
 
 async function _impRunExport(batch, monthFilterSet) {
+  if(!await _libsOk()) return;
   if(!window.ExcelJS) { _alert('ExcelJS no cargó. Revisá la conexión a internet.', {type:'error'}); return; }
   if(!batch) { toast('Elegí una categoría con datos cargados primero.'); return; }
 
@@ -17872,15 +18003,16 @@ _fbAuth.onAuthStateChanged(async (user) => {
       loginScreen.style.display = 'none';
       appShell.style.display = '';
       _recordLogin(user);
-      await loadDB();
-      _startRealtimeSync();
-      await loadNotifEmails();
+      _loadT0 = performance.now(); _loadStats = [];
+      _startRealtimeSync();   // primero: su primer evento ES la carga inicial (sin doble descarga)
+      _ensureLibs().catch(e => console.warn('[Libs]', e.message)); // en paralelo; se reintenta al usarlas
+      await Promise.all([loadDB(), loadNotifEmails()]);
       runOneTimeMigrations();
       loadDemo();
       _pbmLoad();
       document.getElementById('api-key-input').value = getApiKey();
       applyBrandLogo();
-      renderAll();
+      try { renderAll(); } finally { _syncGoLive(); } // en vivo aunque falle un render
       _startPIAlerts();
       _watchStockDiffBadge();
       // Distribuidor: arrancar en Semáforo directo
