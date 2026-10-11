@@ -83,6 +83,24 @@
   .nav-group.collapsed .nav-group-items { display: none; }
   .nav-group.collapsed .nav-group-header i { transform: rotate(-90deg); }
   .nav-group-empty { display: none !important; }
+  /* Evolución de Precios: barras divergentes por categoría + tooltip de los gráficos */
+  .ph-bars { display: flex; flex-direction: column; gap: 2px; }
+  .ph-bar-row { display: grid; grid-template-columns: minmax(130px, 210px) 1fr 92px; align-items: center; gap: 12px; padding: 6px 8px; border-radius: var(--radius); cursor: pointer; }
+  .ph-bar-row:hover { background: var(--bg2); }
+  .ph-bar-row.sel { background: var(--brand-bg); }
+  .ph-bar-label { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+  .ph-bar-label b { font-size: 13px; font-weight: 500; color: var(--text); }
+  .ph-bar-label span { font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ph-bar-track { position: relative; height: 14px; }
+  .ph-bar-zero { position: absolute; top: -4px; bottom: -4px; width: 1px; background: #B8C2D1; }
+  .ph-bar { position: absolute; top: 0; height: 14px; }
+  .ph-bar.up { background: #C2554F; border-radius: 0 4px 4px 0; }
+  .ph-bar.down { background: #4673B5; border-radius: 4px 0 0 4px; }
+  .ph-bar-val { font-size: 13px; font-weight: 600; color: var(--text); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .ph-tip { position: absolute; pointer-events: none; background: var(--bg); border: 0.5px solid var(--border2); border-radius: var(--radius); box-shadow: 0 4px 14px rgba(46,52,64,0.12); padding: 6px 10px; white-space: nowrap; z-index: 2; }
+  .ph-tip-val { font-size: 13px; font-weight: 600; color: var(--text); }
+  .ph-tip-sub { font-size: 11px; color: var(--text3); }
+  @media (max-width: 600px) { .ph-bar-row { grid-template-columns: 110px 1fr 74px; gap: 8px; } }
   /* Reseller Tracking */
   .reseller-block { margin-bottom: 28px; }
   .reseller-block-header { display:flex; align-items:center; gap:10px; margin-bottom:10px; padding:10px 14px; background:var(--bg2); border-radius:var(--radius); border:0.5px solid var(--border2); }
@@ -1699,7 +1717,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '11.10.26.2';
+const APP_VERSION = '11.10.26.3';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -6281,7 +6299,8 @@ const _phCatLabel = c => PH_CAT_LABEL[c] || c || 'Sin categoría';
 const _phCatColor = c => CATEGORY_COLOR[PH_CAT_KEY[c]] || CATEGORY_COLOR.other;
 const _phDayMs = d => Date.parse(d + 'T12:00:00');
 const _phFmtDay = d => { const [y,m,dd] = d.split('-'); return `${dd}/${m}/${y.slice(2)}`; };
-const _phPct = v => v == null || !isFinite(v) ? '—' : (v > 0 ? '+' : '') + v.toFixed(1) + '%';
+const _phNum1 = v => v.toLocaleString('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const _phPct = v => v == null || !isFinite(v) ? '—' : (v > 0 ? '+' : '') + _phNum1(v) + '%';
 const _phPctColor = v => !v || Math.abs(v) < 0.05 ? 'var(--text3)' : v > 0 ? 'var(--red-text)' : 'var(--green-text)';
 // Precio vigente en un día: el último cambio en o antes de ese día (null si todavía no existía)
 function _phPriceAt(it, day) {
@@ -6346,72 +6365,172 @@ async function renderPriceTrendTab() {
   _phRenderModels();
 }
 // Índice por categoría (base 100 al inicio del período) + tabla resumen
+// Colores de los gráficos (validados para daltonismo con el skill de dataviz): subió / bajó / serie
+const PH_UP = '#C2554F', PH_DOWN = '#4673B5', PH_LINE = '#4673B5';
+// Índice base 100 de un grupo de modelos en cada lectura (promedio de precio actual / precio inicial)
+function _phIndexSeries(rows, checks) {
+  return checks.map(d => {
+    const vals = rows.map(r => { const p = _phPriceAt(r.it, d); return p != null ? p / r.base * 100 : null; }).filter(v => v != null);
+    return [d, vals.length ? vals.reduce((s,v) => s + v, 0) / vals.length : 100];
+  });
+}
+// Por categoría: barras divergentes (variación % promedio) + evolución del índice de la categoría elegida
 function _phRenderCats() {
-  const { start, checks } = _phRange();
+  const { start, end, checks } = _phRange();
   const rows = _phRows().filter(r => r.active && !r.isNew);
   const byCat = {};
   rows.forEach(r => (byCat[r.cat] = byCat[r.cat] || []).push(r));
-  const cats = Object.keys(byCat).sort((a,b) => byCat[b].length - byCat[a].length);
-  const series = cats.filter(c => byCat[c].length >= 3).map(c => ({
-    label: _phCatLabel(c), color: _phCatColor(c), cat: c,
-    points: checks.map(d => {
-      const vals = byCat[c].map(r => { const p = _phPriceAt(r.it, d); return p != null ? p / r.base * 100 : null; }).filter(v => v != null);
-      return [d, vals.length ? vals.reduce((s,v) => s + v, 0) / vals.length : 100];
-    })
-  }));
-  const tableRows = cats.map(c => {
+  const stats = Object.keys(byCat).map(c => {
     const list = byCat[c];
-    const avg = list.reduce((s,r) => s + r.varPct, 0) / list.length;
-    const up = list.filter(r => r.varPct > 0.05).length, down = list.filter(r => r.varPct < -0.05).length;
-    const top = list.slice().sort((a,b) => Math.abs(b.varPct) - Math.abs(a.varPct))[0];
-    const sel = _phCat === c;
-    return `<tr style="cursor:pointer${sel ? ';background:var(--bg2)' : ''}" onclick="_phCat=_phCat==='${esc(c)}'?'':'${esc(c)}';_phSel=null;_phRenderModels();_phRenderCats()">
-      <td><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${_phCatColor(c)};margin-right:6px"></span>${esc(_phCatLabel(c))}</td>
-      <td style="text-align:center">${list.length}</td>
-      <td style="text-align:center;color:var(--red-text)">${up || '—'}</td>
-      <td style="text-align:center;color:var(--green-text)">${down || '—'}</td>
-      <td style="text-align:right;font-weight:600;color:${_phPctColor(avg)}">${_phPct(avg)}</td>
-      <td style="font-size:12px;color:var(--text2)">${top && Math.abs(top.varPct) >= 0.05 ? `${esc(top.name)} <span style="color:${_phPctColor(top.varPct)}">${_phPct(top.varPct)}</span>` : '—'}</td>
-    </tr>`;
+    return { cat: c, n: list.length, avg: list.reduce((s,r) => s + r.varPct, 0) / list.length,
+             up: list.filter(r => r.varPct > 0.05).length, down: list.filter(r => r.varPct < -0.05).length };
+  }).sort((a,b) => b.avg - a.avg);
+  const maxAbs = Math.max(1, ...stats.filter(x => x.n >= 3).map(x => Math.abs(x.avg)));
+  const hasNeg = stats.some(x => x.avg < -0.05), hasPos = stats.some(x => x.avg > 0.05);
+  // Cero al medio solo si hay subas y bajas; si todo va para un lado, la barra arranca del borde
+  const zero = hasNeg && hasPos ? 50 : hasNeg ? 100 : 0;
+  const span = hasNeg && hasPos ? 50 : 100;
+  const bars = stats.map(x => {
+    const w = Math.min(Math.abs(x.avg) / maxAbs, 1) * span; // si se pasa de escala, queda al tope (el número es el real)
+    const pos = x.avg >= 0;
+    const left = pos ? zero : zero - w;
+    const sel = _phCat === x.cat;
+    const detail = `${x.n} modelo${x.n === 1 ? '' : 's'}${x.up ? ` · ${x.up} subieron` : ''}${x.down ? ` · ${x.down} bajaron` : ''}`;
+    return `<div class="ph-bar-row${sel ? ' sel' : ''}" onclick="_phCat=_phCat==='${esc(x.cat)}'?'':'${esc(x.cat)}';_phSel=null;_phRenderModels();_phRenderCats()" title="${esc(detail)}">
+      <div class="ph-bar-label"><b>${esc(_phCatLabel(x.cat))}</b><span>${esc(detail)}</span></div>
+      <div class="ph-bar-track">
+        ${hasNeg && hasPos ? '<div class="ph-bar-zero" style="left:50%"></div>' : ''}
+        ${Math.abs(x.avg) >= 0.05 ? `<div class="ph-bar ${pos ? 'up' : 'down'}" style="left:${left}%;width:${Math.max(w, 0.6)}%"></div>` : ''}
+      </div>
+      <div class="ph-bar-val">${Math.abs(x.avg) >= 0.05 ? (pos ? '▲ ' : '▼ ') + _phPct(x.avg) : 'sin cambio'}</div>
+    </div>`;
   }).join('');
+  const selRows = _phCat ? (byCat[_phCat] || []) : rows;
+  const selName = _phCat ? _phCatLabel(_phCat) : 'toda la lista';
+  const idx = _phIndexSeries(selRows, checks);
   document.getElementById('pricetrend-cats').innerHTML = `<div class="ai-box">
-    <div class="ai-box-header" style="color:var(--text)"><i class="ti ti-category" style="color:var(--brand-text)"></i> Por categoría — índice base 100 al ${_phFmtDay(start)}</div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:8px">Promedio de la variación de los modelos que estaban en la lista al inicio del período y siguen hoy. 110 = en promedio la categoría está 10% más cara. Click en una categoría para ver sus modelos.</div>
-    ${series.length ? _phChart(series, { start, end: checks[checks.length-1], fmt: v => v.toFixed(0), baseLine: 100 }) : ''}
-    <div class="table-scroll" style="margin-top:10px"><table class="data-table">
-      <thead><tr><th>Categoría</th><th style="text-align:center">Modelos</th><th style="text-align:center">Subieron</th><th style="text-align:center">Bajaron</th><th style="text-align:right">Variación prom.</th><th>Mayor cambio</th></tr></thead>
-      <tbody>${tableRows || '<tr><td colspan="6" style="text-align:center;color:var(--text3)">Sin datos en este período.</td></tr>'}</tbody>
-    </table></div>
+    <div class="ai-box-header" style="color:var(--text)"><i class="ti ti-category" style="color:var(--brand-text)"></i> Variación por categoría desde el ${_phFmtDay(start)}</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">Promedio de la variación de los modelos que estaban en la lista al inicio del período y siguen hoy. Tocá una categoría para ver su evolución y sus modelos.</div>
+    <div class="ph-bars">${bars || '<div style="color:var(--text3);font-size:12px">Sin datos en este período.</div>'}</div>
+    <div style="margin-top:16px;padding-top:12px;border-top:0.5px solid var(--border2)">
+      <div style="font-size:13px;font-weight:600;color:var(--text)">Evolución de ${esc(selName)}${_phCat ? ` <button class="btn" style="font-size:11px;padding:2px 8px;margin-left:6px" onclick="_phCat='';_phSel=null;_phRenderModels();_phRenderCats()">Ver toda la lista</button>` : ''}</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Índice: 100 = precio al ${_phFmtDay(start)}. 110 = en promedio 10% más caro.</div>
+      ${selRows.length ? _phLineChart('ph-idx', idx, { start, end, fmt: _phNum1, tick: v => String(Math.round(v)), delta: (v, prev) => v - prev, deltaFmt: d => (d > 0 ? '+' : '') + _phNum1(d) + ' pts', baseline: 100, height: 220 }) : ''}
+    </div>
   </div>`;
 }
-// Gráfico escalonado (el precio de lista se mantiene hasta el próximo cambio). series: [{label,color,points:[[día,valor]]}]
-function _phChart(series, { start, end, fmt, baseLine, height = 230 }) {
-  const W = 760, H = height, padL = 58, padR = 14, padT = 12, padB = 26;
-  const t0 = _phDayMs(start), t1 = Math.max(_phDayMs(end), t0 + 86400e3);
-  const vals = series.flatMap(s => s.points.map(p => p[1])).concat(baseLine != null ? [baseLine] : []);
+// Escala "linda" para el eje Y (1, 2, 2,5, 5 × 10^n)
+function _phNiceStep(range, target = 4) {
+  const raw = range / target, mag = Math.pow(10, Math.floor(Math.log10(raw || 1)));
+  const f = raw / mag;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * mag;
+}
+// Gráfico escalonado de UNA serie (el precio se mantiene hasta el próximo cambio).
+// Cada cambio lleva su valor y la variación contra el anterior; con muchos cambios se rotulan
+// solo inicio, fin, máximo y mínimo (el tooltip y la tabla tienen el resto).
+const _phCharts = {};
+function _phLineChart(id, points, { start, end, fmt, tick, delta, deltaFmt, baseline, height = 230 }) {
+  const pts = points.filter(([d]) => d >= start && d <= end);
+  if(!pts.length) return '';
+  const W = 760, H = height, padL = 52, padR = 16, padT = 34, padB = 24;
+  const t0 = _phDayMs(pts[0][0]), t1 = Math.max(_phDayMs(end), t0 + 86400e3);
+  const vals = pts.map(p => p[1]).concat(baseline != null ? [baseline] : []);
   let lo = Math.min(...vals), hi = Math.max(...vals);
-  if(hi - lo < 1e-9) { lo -= 1; hi += 1; }
-  const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
-  const x = d => padL + (_phDayMs(d) - t0) / (t1 - t0) * (W - padL - padR);
-  const y = v => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB);
-  const grid = [0,1,2,3].map(i => { const v = lo + (hi - lo) * i / 3; return `<line x1="${padL}" x2="${W-padR}" y1="${y(v)}" y2="${y(v)}" stroke="var(--border)" stroke-width="0.5"/><text x="${padL-6}" y="${y(v)+3}" text-anchor="end" font-size="10" fill="var(--text3)">${esc(fmt(v))}</text>`; }).join('');
-  // Marcas de mes en el eje X
+  if(hi - lo < 1e-9) { lo -= Math.max(1, Math.abs(lo) * 0.05); hi += Math.max(1, Math.abs(hi) * 0.05); }
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const x = d => padL + (_phDayMs(d) - t0) / (t1 - t0) * plotW;
+  // Puntos de cambio (y el inicio)
+  const changes = pts.filter(([,v], i) => i === 0 || Math.abs(v - pts[i-1][1]) > 1e-9).map(([d,v], i, arr) => ({ d, v, prev: i ? arr[i-1][1] : null }));
+  let labeled = changes;
+  if(changes.length > 8) {
+    const keep = new Set([changes[0], changes[changes.length - 1],
+      changes.reduce((a,b) => b.v > a.v ? b : a), changes.reduce((a,b) => b.v < a.v ? b : a)]);
+    labeled = changes.filter(c => keep.has(c));
+  }
+  // Rótulos: arriba del punto; si dos cambios quedan cerca en X, el de valor más bajo va abajo
+  const below = labeled.map(() => false);
+  for(let i = 1; i < labeled.length; i++) {
+    if(x(labeled[i].d) - x(labeled[i-1].d) >= 95) continue;
+    if(labeled[i].v >= labeled[i-1].v) below[i-1] = true; else below[i] = true;
+  }
+  const step = _phNiceStep(hi - lo);
+  lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
+  if(hi === lo) hi = lo + step;
+  // Un rótulo que va debajo de un punto pegado al piso se pisaría con el eje X: un escalón más de aire
+  if(labeled.some((c, i) => below[i] && (c.v - lo) / (hi - lo) * plotH < 34)) lo -= step;
+  const y = v => padT + (1 - (v - lo) / (hi - lo)) * plotH;
+  // Grilla y eje Y: líneas finas sólidas, valores redondos
+  let grid = '';
+  for(let v = lo; v <= hi + step / 2; v += step) {
+    grid += `<line x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}" stroke="#E5E9F0" stroke-width="1"/>`
+         +  `<text x="${padL - 8}" y="${y(v) + 3.5}" text-anchor="end" font-size="10.5" fill="var(--text3)" style="font-variant-numeric:tabular-nums">${esc(tick(v))}</text>`;
+  }
+  const baseLine = baseline != null && baseline > lo && baseline < hi ? `<line x1="${padL}" x2="${W - padR}" y1="${y(baseline)}" y2="${y(baseline)}" stroke="#B8C2D1" stroke-width="1"/>` : '';
+  // Eje X: primera fecha + inicio de cada mes
   const months = []; const dt = new Date(t0); dt.setUTCDate(1); dt.setUTCMonth(dt.getUTCMonth() + 1);
   while(dt.getTime() <= t1) { months.push(dt.toISOString().slice(0,10)); dt.setUTCMonth(dt.getUTCMonth() + 1); }
-  const monthNames = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
-  const xTicks = [start, ...months].map(d => `<text x="${x(d)}" y="${H-8}" text-anchor="${d === start ? 'start' : 'middle'}" font-size="10" fill="var(--text3)">${d === start ? _phFmtDay(d) : monthNames[Number(d.slice(5,7)) - 1]}</text>`).join('');
-  const base = baseLine != null ? `<line x1="${padL}" x2="${W-padR}" y1="${y(baseLine)}" y2="${y(baseLine)}" stroke="var(--text3)" stroke-dasharray="3 3" stroke-width="0.8"/>` : '';
-  const paths = series.map(s => {
-    const pts = s.points.filter(([d]) => d >= start && d <= end);
-    if(!pts.length) return '';
-    let dPath = `M${x(pts[0][0])},${y(pts[0][1])}`;
-    for(let i = 1; i < pts.length; i++) dPath += ` H${x(pts[i][0])} V${y(pts[i][1])}`;
-    dPath += ` H${x(end)}`;
-    const dots = pts.map(([d,v], i) => (i === 0 || v !== pts[i-1][1]) ? `<circle cx="${x(d)}" cy="${y(v)}" r="3" fill="${s.color}"><title>${esc(s.label)} — ${_phFmtDay(d)}: ${esc(fmt(v))}</title></circle>` : '').join('');
-    return `<path d="${dPath}" fill="none" stroke="${s.color}" stroke-width="2"/>${dots}`;
+  const mn = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  const xTicks = [pts[0][0], ...months.filter(d => x(d) - x(pts[0][0]) > 40)].map(d => `<text x="${x(d)}" y="${H - 6}" text-anchor="${d === pts[0][0] ? 'start' : 'middle'}" font-size="10.5" fill="var(--text3)">${d === pts[0][0] ? _phFmtDay(d) : mn[Number(d.slice(5,7)) - 1]}</text>`).join('');
+  // Línea escalonada + área tenue
+  let dPath = `M${x(pts[0][0])},${y(pts[0][1])}`;
+  for(let i = 1; i < pts.length; i++) dPath += ` H${x(pts[i][0])} V${y(pts[i][1])}`;
+  dPath += ` H${x(end)}`;
+  const floorY = y(baseline != null && baseline > lo ? baseline : lo);
+  const area = `<path d="${dPath} V${floorY} H${x(pts[0][0])} Z" fill="${PH_LINE}" fill-opacity="0.08"/>`;
+  const labels = labeled.map((c, li) => {
+    const cx = x(c.d), cy = y(c.v);
+    const isBelow = below[li];
+    const anchor = cx < padL + 40 ? 'start' : cx > W - padR - 50 ? 'end' : 'middle';
+    const dTxt = c.prev != null ? deltaFmt(delta(c.v, c.prev)) : 'inicio';
+    const vy = isBelow ? cy + 17 : cy - 18, dy = isBelow ? cy + 29 : cy - 7;
+    return `<text x="${cx}" y="${vy}" text-anchor="${anchor}" font-size="11" font-weight="600" fill="var(--text)" style="paint-order:stroke" stroke="#fff" stroke-width="3">${esc(fmt(c.v))}</text>`
+         + `<text x="${cx}" y="${dy}" text-anchor="${anchor}" font-size="10" fill="var(--text3)" style="paint-order:stroke" stroke="#fff" stroke-width="3">${esc(dTxt)}</text>`;
   }).join('');
-  const legend = series.length > 1 ? `<div style="display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11px;color:var(--text2);margin-top:4px">${series.map(s => `<span><span style="display:inline-block;width:10px;height:3px;background:${s.color};vertical-align:middle;margin-right:4px"></span>${esc(s.label)}</span>`).join('')}</div>` : '';
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block">${grid}${base}${paths}${xTicks}</svg>${legend}`;
+  const dots = changes.map(c => `<circle cx="${x(c.d)}" cy="${y(c.v)}" r="4.5" fill="${PH_LINE}" stroke="#fff" stroke-width="2"/>`).join('');
+  _phCharts[id] = { pts, x, y, t0, t1, padL, plotW, W, fmt, delta, deltaFmt };
+  return `<div class="ph-chart" id="${id}" style="position:relative">
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block;overflow:visible" onmousemove="_phHover(event,'${id}')" onmouseleave="_phHoverEnd('${id}')">
+      ${grid}${baseLine}${area}<path d="${dPath}" fill="none" stroke="${PH_LINE}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      <line class="ph-cross" x1="0" x2="0" y1="${padT}" y2="${H - padB}" stroke="#7C8CA5" stroke-width="1" style="display:none"/>
+      ${dots}${labels}${xTicks}
+      <rect x="${padL}" y="${padT}" width="${plotW}" height="${plotH}" fill="transparent"/>
+    </svg>
+    <div class="ph-tip" style="display:none"></div>
+  </div>`;
+}
+// Tooltip con línea vertical: muestra el valor vigente en la fecha bajo el mouse
+function _phHover(evt, id) {
+  const c = _phCharts[id], wrap = document.getElementById(id);
+  if(!c || !wrap) return;
+  const svg = wrap.querySelector('svg'), r = svg.getBoundingClientRect();
+  const vx = (evt.clientX - r.left) / r.width * c.W;
+  if(vx < c.padL || vx > c.padL + c.plotW) { _phHoverEnd(id); return; }
+  const t = c.t0 + (vx - c.padL) / c.plotW * (c.t1 - c.t0);
+  const day = new Date(t).toISOString().slice(0,10);
+  let i = -1;
+  for(let k = 0; k < c.pts.length; k++) { if(c.pts[k][0] <= day) i = k; else break; }
+  if(i < 0) { _phHoverEnd(id); return; }
+  const [d, v] = c.pts[i];
+  let j = i; while(j > 0 && Math.abs(c.pts[j-1][1] - v) < 1e-9) j--;   // desde cuándo rige este valor
+  const prev = j > 0 ? c.pts[j-1][1] : null;
+  const line = svg.querySelector('.ph-cross');
+  line.setAttribute('x1', vx); line.setAttribute('x2', vx); line.style.display = '';
+  const tip = wrap.querySelector('.ph-tip');
+  tip.textContent = '';
+  const val = document.createElement('div'); val.className = 'ph-tip-val'; val.textContent = c.fmt(v);
+  const sub = document.createElement('div'); sub.className = 'ph-tip-sub';
+  sub.textContent = 'Vigente desde el ' + _phFmtDay(c.pts[j][0]) + (prev != null ? ' · ' + c.deltaFmt(c.delta(v, prev)) + ' vs. anterior' : '');
+  tip.append(val, sub);
+  tip.style.display = 'block';
+  const px = (vx / c.W) * r.width;
+  tip.style.left = Math.min(Math.max(px + 12, 0), r.width - tip.offsetWidth) + 'px';
+  tip.style.top = '4px';
+}
+function _phHoverEnd(id) {
+  const wrap = document.getElementById(id);
+  if(!wrap) return;
+  const line = wrap.querySelector('.ph-cross'); if(line) line.style.display = 'none';
+  const tip = wrap.querySelector('.ph-tip'); if(tip) tip.style.display = 'none';
 }
 // Mini gráfico para la tabla de modelos
 function _phSpark(it, start, end) {
@@ -6496,7 +6615,7 @@ function _phRenderDetail() {
       <div><b>${esc(it.n)}</b> <span style="font-size:11px;color:var(--text3);font-family:monospace">${esc(_phSel)}</span><div style="font-size:12px;color:var(--text3)">${esc(_phCatLabel(it.cat))}</div></div>
       <button class="btn" style="font-size:11px;padding:3px 8px" onclick="_phSelectModel('${esc(_phSel)}')"><i class="ti ti-x" style="font-size:12px"></i></button>
     </div>
-    ${pts.length ? _phChart([{ label: it.n, color: '#FF6600', points: pts }], { start: pts[0][0], end, fmt: v => 'USD ' + Math.round(v).toLocaleString('es-AR'), height: 200 }) : ''}
+    ${pts.length ? _phLineChart('ph-model', pts, { start: pts[0][0], end, fmt: v => 'USD ' + Math.round(v).toLocaleString('es-AR'), tick: v => Math.round(v).toLocaleString('es-AR'), delta: (v, p) => (v - p) / p * 100, deltaFmt: _phPct, height: 230 }) : ''}
     <div class="table-scroll" style="max-height:200px;overflow-y:auto;margin-top:8px"><table class="data-table" style="font-size:12px">
       <thead><tr><th>Desde</th><th style="text-align:right">Precio de lista</th><th style="text-align:right">vs. anterior</th></tr></thead>
       <tbody>${changes}</tbody>
