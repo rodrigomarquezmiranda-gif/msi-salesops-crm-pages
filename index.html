@@ -1808,7 +1808,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '13.10.26.1';
+const APP_VERSION = '13.10.26.2';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -2598,7 +2598,7 @@ Respondé preguntas sobre compras de clientes, precios de venta, ranking de clie
 Si el usuario pide un rango de fechas específico (ej. "la última semana") y la herramienta no encuentra nada en ESE rango puntual, antes de responder "no hay compras" volvé a llamar la misma herramienta SIN esa restricción de fecha (todo el historial) para ver si hay compras más viejas — y si las hay, contestá con eso y aclará que no fueron en el rango pedido sino antes (con la fecha real). Recién si tampoco aparece nada en todo el historial, decí que no encontraste compras de ese cliente/modelo.
 Si una herramienta no encuentra resultados después de eso, decilo claramente en vez de suponer.
 Para preguntas sobre características técnicas de productos (specs, comparar modelos, qué modelos cumplen una condición, qué ofrecerle a un cliente) usá ficha_tecnica: son las fichas oficiales cargadas desde las listas de precio de cada línea — nunca completes specs de memoria, y si un modelo no tiene ficha cargada decilo. Podés combinarla con las otras herramientas para cruzar specs con ventas o clientes.
-Para preguntas sobre plata de Marketing (presupuesto, cuánto queda, cuánto se gastó, por trimestre, por área como NVIDIA/AMD/CND o por cliente) usá presupuesto_marketing. "Cuánta plata tiene" = saldo disponible (remaining budget), pero mostrá también el asignado y lo ya planificado para que se entienda.
+Para preguntas sobre plata de Marketing (presupuesto, cuánto queda, cuánto se gastó, por trimestre, por área como NVIDIA/AMD/CND o por cliente) usá presupuesto_marketing. "Cuánta plata tiene" = saldo disponible (remaining budget), pero mostrá también el asignado y lo ya planificado para que se entienda. Para gasto en un tipo de acción puntual (influencers, eventos, streamers, banners…) usá el parámetro buscar; para comparar trimestres llamala sin trimestre y armá una tabla con el total de cada uno y la variación.
 Formato de respuesta:
 1. Primero respondé la pregunta puntual con los datos exactos (fechas, distribuidor, cantidades, precios en USD).
 2. Si los datos devueltos por las herramientas muestran algo que valga la pena señalar (ej. un precio bastante más alto o bajo que en otros distribuidores, una caída o salto notorio, algo que se repite en varios clientes), agregá al final un párrafo corto que empiece con "💡 " con esa observación — pero SOLO si realmente hay algo notable en los datos que devolviste, nunca por rellenar. Si no hay nada llamativo, no agregues ese párrafo.
@@ -14512,7 +14512,8 @@ const CRM_AI_TOOLS = [
       properties: {
         trimestre: { type: 'string', description: 'Trimestre: "Q1", "Q2", "Q3" o "Q4" (opcional; si no se especifica trae todos los cargados)' },
         departamento: { type: 'string', description: 'Departamento/área (LOB) o parte del nombre (opcional) — ej. "NVIDIA", "CND", "AMD"' },
-        cliente: { type: 'string', description: 'Cliente o parte del nombre (opcional) — trae solo las actividades de ese cliente' }
+        cliente: { type: 'string', description: 'Cliente o parte del nombre (opcional) — trae solo las actividades de ese cliente' },
+        buscar: { type: 'string', description: 'Texto a buscar en la categoría, la descripción de la actividad y el cliente (opcional) — ej. "influencer", "evento", "streamer", "banner". Usar la raíz de la palabra en singular ("influencer" encuentra también "influencers"). Varias palabras: tienen que aparecer todas. Devuelve el total gastado en lo que coincide por trimestre y el detalle de cada actividad; para comparar trimestres no pases "trimestre"' }
       }
     }
   }
@@ -14683,7 +14684,7 @@ function _aiToolFichaTecnica({modelo, categoria, contiene}) {
   };
 }
 
-function _aiToolPresupuestoMarketing({trimestre, departamento, cliente}) {
+function _aiToolPresupuestoMarketing({trimestre, departamento, cliente, buscar}) {
   // Mismo permiso que la pestaña: si el rol no ve Marketing Budget, LuckIA tampoco
   if(!_tabVisibleForRole('mkt')) return { error: 'Tu usuario no tiene acceso a Marketing Budget.' };
   const data = (db.mkt || [])[0];
@@ -14695,12 +14696,22 @@ function _aiToolPresupuestoMarketing({trimestre, departamento, cliente}) {
   const r2 = v => v == null ? null : Math.round(v*100)/100;
   const dq = departamento ? String(departamento).toUpperCase().trim() : '';
   const cq = cliente ? normClientKey(cliente) : '';
-  return {
+  // Sin acentos ni mayúsculas, para que "promocion" encuentre "Promoción"
+  const fold = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const bTokens = buscar ? fold(buscar).split(/\s+/).filter(Boolean) : [];
+  const out = {
     anio: DATA_YEAR, archivo: data.sourceFile, cargado: (data.uploadedAt||'').slice(0,10), moneda: 'USD',
     trimestresDisponibles: data.quarters.map(q => 'Q' + q.q),
     trimestres: quarters.map(q => {
       const depts = (q.departments || []).filter(d => !dq || d.name.toUpperCase().includes(dq));
-      const rows = (q.rows || []).filter(r => !cq || normClientKey(r.customer).includes(cq));
+      const rows = (q.rows || []).filter(r => {
+        if(cq && !normClientKey(r.customer).includes(cq)) return false;
+        if(bTokens.length) {
+          const txt = fold(r.term + ' ' + r.activity + ' ' + r.customer);
+          if(!bTokens.every(t => txt.includes(t))) return false;
+        }
+        return true;
+      });
       const porCategoria = {}, porCliente = {};
       rows.forEach(r => {
         porCategoria[r.term] = (porCategoria[r.term] || 0) + r.total;
@@ -14715,10 +14726,13 @@ function _aiToolPresupuestoMarketing({trimestre, departamento, cliente}) {
           : { nombre: d.name, asignado: r2(d.allocation), usado: 'sin datos de uso en el Excel' }),
         gastoPorCategoria: top(porCategoria, 25),
         gastoPorCliente: top(porCliente, 25),
-        actividades: cq ? rows.slice(0, 40).map(r => ({ categoria: r.term, cliente: r.customer, actividad: r.activity, usd: r2(r.total) })) : undefined
+        totalCoincidencias: bTokens.length ? { actividades: rows.length, usd: r2(rows.reduce((s,r) => s + r.total, 0)) } : undefined,
+        actividades: (cq || bTokens.length) ? rows.slice(0, 40).map(r => ({ categoria: r.term, cliente: r.customer, actividad: r.activity, usd: r2(r.total) })) : undefined
       };
     })
   };
+  if(bTokens.length) out.nota = `Filtrado por "${buscar}" en categoría, actividad y cliente. Si en un trimestre no hay coincidencias, ese trimestre no tuvo gasto con ese texto (confirmá con los ejemplos de actividades que no sea un tema de cómo está escrito).`;
+  return out;
 }
 
 function _executeAiTool(name, input) {
