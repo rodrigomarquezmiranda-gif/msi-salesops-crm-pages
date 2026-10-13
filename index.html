@@ -1808,7 +1808,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '13.10.26.3';
+const APP_VERSION = '13.10.26.4';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -14697,10 +14697,12 @@ function _aiToolPresupuestoMarketing({trimestre, departamento, cliente, buscar})
   const dq = departamento ? String(departamento).toUpperCase().trim() : '';
   const cq = cliente ? normClientKey(cliente) : '';
   // Sin acentos, mayúsculas, guiones, puntos ni espacios: "promocion" encuentra "Promoción",
-  // "etailer" encuentra "E-Tailers" y "e-tailer" encuentra "Etailers"
+  // "etailer" encuentra "E-Tailers" y "e-tailer" encuentra "Etailers". Cada palabra buscada se pasa a
+  // singular (como la comparación es "contiene", "evento" encuentra "Eventos" y "promocion" "Promociones")
   const fold = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   const squash = s => fold(s).replace(/[^a-z0-9]/g, '');
-  const bTokens = buscar ? fold(buscar).split(/\s+/).map(squash).filter(Boolean) : [];
+  const singular = t => t.length > 4 && t.endsWith('es') ? t.slice(0, -2) : t.length > 3 && t.endsWith('s') ? t.slice(0, -1) : t;
+  const bTokens = buscar ? fold(buscar).split(/\s+/).map(squash).filter(Boolean).map(singular) : [];
   const out = {
     anio: DATA_YEAR, archivo: data.sourceFile, cargado: (data.uploadedAt||'').slice(0,10), moneda: 'USD',
     trimestresDisponibles: data.quarters.map(q => 'Q' + q.q),
