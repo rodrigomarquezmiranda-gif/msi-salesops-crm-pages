@@ -1847,7 +1847,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '13.10.26.6';
+const APP_VERSION = '13.10.26.7';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -6594,10 +6594,13 @@ function getProductSpecs(code, desc) {
       || null;
 }
 async function handleSpecFiles(fileList) {
-  if(!await _libsOk()) return;
-  if(_currentRole !== 'admin') { _alert('Solo un administrador puede cargar fichas técnicas.', {type:'warning'}); return; }
+  // Copiar la lista ANTES del primer await: el input se vacía (this.value='') apenas vuelve esta
+  // función y un drop deja de dar acceso a sus archivos al terminar el evento → la FileList queda
+  // en 0 y la carga no hacía nada (bug desde que las librerías se cargan con _libsOk)
   const files = [...(fileList || [])];
   if(!files.length) return;
+  if(!await _libsOk()) return;
+  if(_currentRole !== 'admin') { _alert('Solo un administrador puede cargar fichas técnicas.', {type:'warning'}); return; }
   const prog = document.getElementById('specs-upload-progress');
   const now = new Date().toISOString();
   const nextItems = { ...(productSpecs.items || {}) };
@@ -18157,6 +18160,23 @@ function importItems() {
 }
 
 // ─── UTILS ────────────────────────────────────────────
+// Aviso corto abajo de la pantalla que se va solo. Se llamaba en 26 lugares pero nunca estuvo
+// definida: cada llamada tiraba un error y cortaba lo que venía después (ej. la carga de fichas)
+let _toastTimer = null;
+function toast(msg) {
+  let el = document.getElementById('app-toast');
+  if(!el) {
+    el = document.createElement('div');
+    el.id = 'app-toast';
+    el.setAttribute('role', 'status');
+    el.style.cssText = 'position:fixed;left:50%;bottom:calc(76px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:10000;max-width:min(92vw,480px);padding:10px 16px;border-radius:10px;background:var(--text);color:var(--bg);font-size:13px;line-height:1.4;box-shadow:0 6px 24px rgba(0,0,0,0.25);transition:opacity .2s;pointer-events:none';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.opacity = '1';
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => { el.style.opacity = '0'; }, 3200);
+}
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 // ─── DEMO DATA ────────────────────────────────────────
