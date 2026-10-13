@@ -1,6 +1,6 @@
 // MSI SalesOps CRM — Service Worker
 // Cache name includes version — changing it forces old cache eviction on next activate.
-const CACHE = 'salesops-13.10.26.4';
+const CACHE = 'salesops-13.10.26.5';
 const SHELL = ['./index.html', './manifest.json', './icon-192.png', './icon-512.png', './icon-apple.png', './favicon.svg', './favicon.png'];
 
 self.addEventListener('install', e => {
@@ -40,7 +40,7 @@ self.addEventListener('fetch', e => {
           }
           return res;
         })
-        .catch(() => caches.match(e.request))
+        .catch(() => caches.match(e.request, { ignoreSearch: true })) // "/?tab=ia" (acceso directo LuckIA) usa la copia de "/"
     );
     return;
   }

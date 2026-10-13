@@ -14,6 +14,20 @@
     { "src": "favicon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
     { "src": "favicon.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
-  "categories": ["business", "productivity"],
-  "screenshots": []
+  "categories": [
+    "business",
+    "productivity"
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "LuckIA",
+      "short_name": "LuckIA",
+      "description": "Preguntale a LuckIA sobre tus datos",
+      "url": "./?tab=ia",
+      "icons": [
+        { "src": "luckia-avatar.jpg", "sizes": "265x265", "type": "image/jpeg" }
+      ]
+    }
+  ]
 }
