@@ -128,12 +128,13 @@ if(new URLSearchParams(location.search).get('app') === 'luckia') {
   .dash-tile-sub { font-size: 12.5px; color: var(--text2); }
   .dash-tile-sub b { color: var(--text); }
   .dash-row { display: flex; flex-wrap: wrap; gap: 12px; }
-  .dash-bars { display: flex; align-items: flex-end; gap: 8px; height: 190px; padding-top: 18px; border-bottom: 1px solid var(--border2); }
+  .dash-bars { display: flex; align-items: flex-end; gap: 8px; height: 200px; padding-top: 32px; border-bottom: 1px solid var(--border2); }
   .dash-bar-col { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; position: relative; min-width: 0; }
   .dash-bar { width: 100%; max-width: 24px; background: #9DB3D3; border-radius: 4px 4px 0 0; }
   .dash-bar.last { background: #4673B5; }
   .dash-bar.partial { background: #D5DEEA; }
-  .dash-bar-val { font-size: 10.5px; color: var(--text2); margin-bottom: 3px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .dash-bar-val { font-size: 10.5px; color: var(--text2); margin-bottom: 1px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .dash-bar-usd { font-size: 9.5px; color: var(--text3); margin-bottom: 3px; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .dash-bar-lbl { position: absolute; bottom: -18px; font-size: 10px; color: var(--text3); white-space: nowrap; }
   .dash-bars + * { margin-top: 22px; }
   .dash-card .dash-bars { margin-bottom: 20px; }
@@ -161,6 +162,25 @@ if(new URLSearchParams(location.search).get('app') === 'luckia') {
   .ph-bar.up { background: #C2554F; border-radius: 0 4px 4px 0; }
   .ph-bar.down { background: #4673B5; border-radius: 4px 0 0 4px; }
   .ph-bar-val { font-size: 13px; font-weight: 600; color: var(--text); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  /* Gráficos que se dibujan solos al aparecer: las barras crecen una tras otra (--i = orden) y la
+     línea de Evolución de Precios se traza de izquierda a derecha (pathLength=1 → dash de 1 a 0);
+     puntos y rótulos aparecen cuando la línea pasa por ellos (delay inline). Sin movimiento si el
+     sistema pide reducir animaciones. */
+  @keyframes chartGrowY { from { transform: scaleY(0); } }
+  @keyframes chartGrowX { from { transform: scaleX(0); } }
+  @keyframes chartFadeIn { from { opacity: 0; } }
+  @keyframes chartDraw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+  .dash-bar { transform-origin: bottom; animation: chartGrowY .55s cubic-bezier(.2,.7,.3,1) both; animation-delay: calc(var(--i, 0) * 70ms); }
+  .dash-bar-val, .dash-bar-usd { animation: chartFadeIn .3s ease both; animation-delay: calc(var(--i, 0) * 70ms + .35s); }
+  .ph-bar { animation: chartGrowX .6s cubic-bezier(.2,.7,.3,1) both; animation-delay: calc(var(--i, 0) * 50ms); }
+  .ph-bar.up { transform-origin: left; }
+  .ph-bar.down { transform-origin: right; }
+  .ph-draw { stroke-dasharray: 1; animation: chartDraw 1.4s ease-in-out both; }
+  .ph-area { animation: chartFadeIn .6s ease 1.1s both; }
+  .ph-pop { animation: chartFadeIn .3s ease both; }
+  @media (prefers-reduced-motion: reduce) {
+    .dash-bar, .dash-bar-val, .dash-bar-usd, .ph-bar, .ph-draw, .ph-area, .ph-pop { animation: none; }
+  }
   .ph-tip { position: absolute; pointer-events: none; background: var(--bg); border: 0.5px solid var(--border2); border-radius: var(--radius); box-shadow: 0 4px 14px rgba(46,52,64,0.12); padding: 6px 10px; white-space: nowrap; z-index: 2; }
   .ph-tip-val { font-size: 13px; font-weight: 600; color: var(--text); }
   .ph-tip-sub { font-size: 11px; color: var(--text3); }
@@ -1856,7 +1876,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '13.10.26.11';
+const APP_VERSION = '13.10.26.12';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -5330,6 +5350,7 @@ function renderDashboard() {
 const _dashFmt = v => Math.round(v).toLocaleString('es-AR');
 const _dashUSD = v => 'USD ' + Math.round(v).toLocaleString('es-AR');
 const _dashCompact = v => v >= 10000 ? Math.round(v / 1000) + 'k' : v >= 1000 ? (v / 1000).toLocaleString('es-AR', { maximumFractionDigits: 1 }) + 'k' : String(Math.round(v));
+const _dashCompactUSD = v => '$' + (v >= 1e6 ? (v / 1e6).toLocaleString('es-AR', { maximumFractionDigits: 1 }) + 'M' : _dashCompact(v));
 // Sell-out por distribuidor y semana (lunes). Mismo criterio que Top Movers: cada reporte de ventas es
 // una semana; si una semana se subió más de una vez, cuenta la última subida (no se duplica). Los reportes
 // históricos de varios meses se reparten por la fecha de cada fila, solo en semanas sin reporte propio.
@@ -5426,7 +5447,8 @@ function renderDashboardHome() {
   // ── Últimas 12 semanas (total de los distribuidores con reporte)
   const w12 = allWeeks.slice(-12).map(wk => {
     const dks = Object.keys(DISTRIBUTORS).filter(dk => weekly[dk].has(wk));
-    return { wk, qty: tot(wk, dks).qty, dks };
+    const t = tot(wk, dks);
+    return { wk, qty: t.qty, usd: t.usd, dks };
   });
   const expected = Object.keys(DISTRIBUTORS).filter(dk => w12.some(w => w.dks.includes(dk))).length;
 
@@ -5438,9 +5460,10 @@ function renderDashboardHome() {
   const bars = w12.map((w, i) => {
     const isLast = i === w12.length - 1, partial = w.dks.length < expected;
     const missing = Object.keys(DISTRIBUTORS).filter(dk => !w.dks.includes(dk) && (expected === 0 || w12.some(x => x.dks.includes(dk))));
-    const tip = `Semana del ${fmtWk(w.wk)}: ${_dashFmt(w.qty)} u.` + (partial ? ` · sin reporte de ${missing.map(dk => DISTRIBUTORS[dk]).join(', ')}` : '');
-    return `<div class="dash-bar-col" title="${esc(tip)}">
+    const tip = `Semana del ${fmtWk(w.wk)}: ${_dashFmt(w.qty)} u. · ${_dashUSD(w.usd)}` + (partial ? ` · sin reporte de ${missing.map(dk => DISTRIBUTORS[dk]).join(', ')}` : '');
+    return `<div class="dash-bar-col" title="${esc(tip)}" style="--i:${i}">
       <span class="dash-bar-val">${_dashCompact(w.qty)}</span>
+      <span class="dash-bar-usd">${_dashCompactUSD(w.usd)}</span>
       <div class="dash-bar${isLast ? ' last' : ''}${partial ? ' partial' : ''}" style="height:${Math.max(2, w.qty / maxQ * 100)}%"></div>
       <span class="dash-bar-lbl">${fmtWk(w.wk)}</span>
     </div>`;
@@ -5481,7 +5504,7 @@ function renderDashboardHome() {
     <div class="dash-row">
       <section class="dash-card" style="flex:2 1 460px">
         <div class="dash-card-top"><h3 class="dash-h">Sell-out · últimas ${w12.length} semanas</h3><button class="dash-link" onclick="gotoTab('rotation')">Inventario y rotación →</button></div>
-        <div class="dash-note">Unidades por semana, suma de los distribuidores. Las semanas más claras están incompletas (falta algún reporte): pasá el mouse para ver cuál.</div>
+        <div class="dash-note">Unidades y USD por semana (a precio de venta de cada distribuidor), suma de los distribuidores. Las semanas más claras están incompletas (falta algún reporte): pasá el mouse para ver cuál.</div>
         ${w12.length ? `<div class="dash-bars">${bars}</div>` : '<div class="dash-note">Todavía no hay reportes de ventas cargados.</div>'}
       </section>
       <section class="dash-card" style="flex:1 1 320px">
@@ -6858,7 +6881,7 @@ function _phRenderCats() {
   // Cero al medio solo si hay subas y bajas; si todo va para un lado, la barra arranca del borde
   const zero = hasNeg && hasPos ? 50 : hasNeg ? 100 : 0;
   const span = hasNeg && hasPos ? 50 : 100;
-  const bars = stats.map(x => {
+  const bars = stats.map((x, bi) => {
     const w = Math.min(Math.abs(x.avg) / maxAbs, 1) * span; // si se pasa de escala, queda al tope (el número es el real)
     const pos = x.avg >= 0;
     const left = pos ? zero : zero - w;
@@ -6868,7 +6891,7 @@ function _phRenderCats() {
       <div class="ph-bar-label"><b>${esc(_phCatLabel(x.cat))}</b><span>${esc(detail)}</span></div>
       <div class="ph-bar-track">
         ${hasNeg && hasPos ? '<div class="ph-bar-zero" style="left:50%"></div>' : ''}
-        ${Math.abs(x.avg) >= 0.05 ? `<div class="ph-bar ${pos ? 'up' : 'down'}" style="left:${left}%;width:${Math.max(w, 0.6)}%"></div>` : ''}
+        ${Math.abs(x.avg) >= 0.05 ? `<div class="ph-bar ${pos ? 'up' : 'down'}" style="left:${left}%;width:${Math.max(w, 0.6)}%;--i:${bi}"></div>` : ''}
       </div>
       <div class="ph-bar-val">${Math.abs(x.avg) >= 0.05 ? (pos ? '▲ ' : '▼ ') + _phPct(x.avg) : 'sin cambio'}</div>
     </div>`;
@@ -6944,21 +6967,23 @@ function _phLineChart(id, points, { start, end, fmt, tick, delta, deltaFmt, base
   for(let i = 1; i < pts.length; i++) dPath += ` H${x(pts[i][0])} V${y(pts[i][1])}`;
   dPath += ` H${x(end)}`;
   const floorY = y(baseline != null && baseline > lo ? baseline : lo);
-  const area = `<path d="${dPath} V${floorY} H${x(pts[0][0])} Z" fill="${PH_LINE}" fill-opacity="0.08"/>`;
+  const area = `<path class="ph-area" d="${dPath} V${floorY} H${x(pts[0][0])} Z" fill="${PH_LINE}" fill-opacity="0.08"/>`;
+  // La línea se dibuja de izquierda a derecha (1,4 s): cada punto y rótulo aparece cuando la línea pasa por él
+  const popAt = cx => `animation-delay:${(Math.max(0, cx - padL) / plotW * 1.4).toFixed(2)}s`;
   const labels = labeled.map((c, li) => {
     const cx = x(c.d), cy = y(c.v);
     const isBelow = below[li];
     const anchor = cx < padL + 40 ? 'start' : cx > W - padR - 50 ? 'end' : 'middle';
     const dTxt = c.prev != null ? deltaFmt(delta(c.v, c.prev)) : 'inicio';
     const vy = isBelow ? cy + 17 : cy - 18, dy = isBelow ? cy + 29 : cy - 7;
-    return `<text x="${cx}" y="${vy}" text-anchor="${anchor}" font-size="11" font-weight="600" fill="var(--text)" style="paint-order:stroke" stroke="#fff" stroke-width="3">${esc(fmt(c.v))}</text>`
-         + `<text x="${cx}" y="${dy}" text-anchor="${anchor}" font-size="10" fill="var(--text3)" style="paint-order:stroke" stroke="#fff" stroke-width="3">${esc(dTxt)}</text>`;
+    return `<text class="ph-pop" x="${cx}" y="${vy}" text-anchor="${anchor}" font-size="11" font-weight="600" fill="var(--text)" style="paint-order:stroke;${popAt(cx)}" stroke="#fff" stroke-width="3">${esc(fmt(c.v))}</text>`
+         + `<text class="ph-pop" x="${cx}" y="${dy}" text-anchor="${anchor}" font-size="10" fill="var(--text3)" style="paint-order:stroke;${popAt(cx)}" stroke="#fff" stroke-width="3">${esc(dTxt)}</text>`;
   }).join('');
-  const dots = changes.map(c => `<circle cx="${x(c.d)}" cy="${y(c.v)}" r="4.5" fill="${PH_LINE}" stroke="#fff" stroke-width="2"/>`).join('');
+  const dots = changes.map(c => `<circle class="ph-pop" cx="${x(c.d)}" cy="${y(c.v)}" r="4.5" fill="${PH_LINE}" stroke="#fff" stroke-width="2" style="${popAt(x(c.d))}"/>`).join('');
   _phCharts[id] = { pts, x, y, t0, t1, padL, plotW, W, fmt, delta, deltaFmt };
   return `<div class="ph-chart" id="${id}" style="position:relative">
     <svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block;overflow:visible" onmousemove="_phHover(event,'${id}')" onmouseleave="_phHoverEnd('${id}')">
-      ${grid}${baseLine}${area}<path d="${dPath}" fill="none" stroke="${PH_LINE}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      ${grid}${baseLine}${area}<path class="ph-draw" pathLength="1" d="${dPath}" fill="none" stroke="${PH_LINE}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
       <line class="ph-cross" x1="0" x2="0" y1="${padT}" y2="${H - padB}" stroke="#7C8CA5" stroke-width="1" style="display:none"/>
       ${dots}${labels}${xTicks}
       <rect x="${padL}" y="${padT}" width="${plotW}" height="${plotH}" fill="transparent"/>
