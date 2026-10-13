@@ -519,6 +519,11 @@ if(new URLSearchParams(location.search).get('app') === 'luckia') {
   /* Botón de la barra con texto largo en la compu y corto en el celular */
   .tb-label-short { display: none; }
   @media (max-width: 767px) { .tb-label-long { display: none; } .tb-label-short { display: inline; } }
+  /* "Descargar Lista de Precios Actual": naranja MSI (destaca contra el azul de la app) y, en la
+     compu, centrado en la barra (la .topbar es sticky → sirve de referencia para el absolute) */
+  #btn-dl-pricelist { background: #D9480F; border-color: #D9480F; color: #fff; font-weight: 600; padding: 7px 18px; box-shadow: 0 2px 8px rgba(217,72,15,0.3); }
+  #btn-dl-pricelist:hover { background: #B83C0C; border-color: #B83C0C; }
+  @media (min-width: 768px) { #btn-dl-pricelist { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); } }
 
   /* ══════════════════════════════════════════════════════
      App LuckIA (?app=luckia) — solo el chat, a pantalla completa
@@ -1851,7 +1856,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '13.10.26.9';
+const APP_VERSION = '13.10.26.10';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
