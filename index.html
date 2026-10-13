@@ -1856,7 +1856,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '13.10.26.10';
+const APP_VERSION = '13.10.26.11';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -5645,7 +5645,8 @@ function parseLatamStockRows(rows, fileName, sheet) {
     // ── Category header: col A = 'UPC' (standard and non-standard like MB) ─
     if(a.toLowerCase()==='upc') {
       // Check col C first, then col B (handles row 103: a='UPC', b='MB', c='MB')
-      const mapped = LATAM_CAT_MAP[c.toLowerCase()] ?? LATAM_CAT_MAP[b.toLowerCase()];
+      const mapped = LATAM_CAT_MAP[c.toLowerCase()] ?? LATAM_CAT_MAP[b.toLowerCase()]
+        ?? (/cubi|mini\s*-?\s*pc|pro\s*d[pt]\b|desktop/i.test(c+' '+b) ? 'CUBI' : undefined); // variantes del encabezado de Mini PC
       if(mapped !== undefined) { currentCat=mapped; seenCat=true; }
       return;
     }
@@ -5708,8 +5709,12 @@ function parseLatamStockRows(rows, fileName, sheet) {
     const bondedStock=parseStockNum(row[LATAM_COL.bondedStock]);
     const bondedEta=String(row[LATAM_COL.bondedEta]||'').trim()||null;
     if(!desc&&price===null&&!effectiveCode) return;
-    // EdgeXpert / PRO MAX EDGE AI son AI Solutions aunque la planilla los deje bajo otro encabezado
-    const category=/EDGE\s*-?\s*(XPERT|AI(?![A-Z]))/i.test(effectiveCode+' '+desc)?'AI Solutions':currentCat;
+    // EdgeXpert / PRO MAX EDGE AI son AI Solutions aunque la planilla los deje bajo otro encabezado.
+    // Igual Cubi / PRO DP / PRO DT → CUBI: el encabezado de su sección no se reconocía y heredaban
+    // "Power Cords" de la sección anterior (el Quiz los excluía y la lista los mostraba como cables)
+    const _codeDesc=effectiveCode+' '+desc;
+    const category=/EDGE\s*-?\s*(XPERT|AI(?![A-Z]))/i.test(_codeDesc)?'AI Solutions'
+      :/\bCU(BI|NUC)|\bPRO\s*D[PT]\s*\d/i.test(_codeDesc)?'CUBI':currentCat;
     products.push({code:effectiveCode,desc,detalle,estado,ficha,qtyCtn,qtyPlt,price,priceQ,miamiStock,miamiEta,bondedStock,bondedEta,upc,category});
   });
   return {products,sourceFile:fileName,isLatamFormat:true};
