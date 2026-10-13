@@ -16,6 +16,17 @@
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="theme-color" content="#CC2222" media="(prefers-color-scheme: light)" />
 <meta name="theme-color" content="#CC2222" media="(prefers-color-scheme: dark)" />
+<script>
+// App "LuckIA" (?app=luckia): se instala aparte con su propio ícono y muestra solo el chat.
+// Va acá arriba para que el navegador lea el manifest/ícono de LuckIA antes de ofrecer instalarla.
+if(new URLSearchParams(location.search).get('app') === 'luckia') {
+  document.documentElement.classList.add('luckia-app');
+  document.title = 'LuckIA';
+  document.querySelector('link[rel="manifest"]').href = 'manifest-luckia.json';
+  document.querySelector('link[rel="apple-touch-icon"]').href = 'luckia-apple.png';
+  document.querySelector('meta[name="apple-mobile-web-app-title"]').content = 'LuckIA';
+}
+</script>
 <!-- Preconnect para reducir latencia en CDNs y Firebase -->
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin />
 <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin />
@@ -505,6 +516,21 @@
 
   /* Hamburger button — hidden on desktop */
   #btn-hamburger { display: none; }
+
+  /* ══════════════════════════════════════════════════════
+     App LuckIA (?app=luckia) — solo el chat, a pantalla completa
+  ══════════════════════════════════════════════════════ */
+  .luckia-open-crm { display: none; }
+  .luckia-app .sidebar, .luckia-app .sidebar-overlay, .luckia-app .topbar, .luckia-app #hub-subtabs,
+  .luckia-app #mobile-bottom-nav, .luckia-app #tab-ia #drop-zone, .luckia-app #tab-ia #ai-loading,
+  .luckia-app #tab-ia #ai-result { display: none !important; }
+  .luckia-app .main { margin-left: 0 !important; }
+  .luckia-app .content { padding: calc(8px + env(safe-area-inset-top)) 8px 0 !important; max-width: 900px; margin: 0 auto; }
+  .luckia-app #tab-ia .ai-box { margin: 0 !important; height: calc(100dvh - 8px - env(safe-area-inset-top)); display: flex; flex-direction: column; border-radius: 14px 14px 0 0; }
+  .luckia-app #ai-chat-log { flex: 1; height: auto !important; max-height: none !important; min-height: 0 !important; }
+  .luckia-app #tab-ia .ai-chat-inputrow { position: static !important; padding: 6px 0 calc(8px + env(safe-area-inset-bottom)) !important; }
+  .luckia-app #tab-ia .ai-box:has(#ai-chat-log:not(:empty)) .ai-chat-intro { display: none; } /* la explicación solo con el chat vacío */
+  .luckia-app .luckia-open-crm { display: inline-flex; margin-left: auto; align-items: center; gap: 4px; font-size: 12px; font-weight: 500; color: var(--text2); text-decoration: none; border: 0.5px solid var(--border2); border-radius: 8px; padding: 4px 10px; }
 </style>
 </head>
 <body>
@@ -1320,6 +1346,7 @@
           <div class="ai-box-header" style="display:flex;align-items:center;gap:10px">
             <img src="./luckia-avatar.jpg" alt="LuckIA" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:2px solid var(--brand)" />
             LuckIA — Consultas sobre tus datos
+            <a class="luckia-open-crm" href="./" title="Abrir el CRM completo"><i class="ti ti-layout-dashboard"></i> CRM</a>
           </div>
           <div class="ai-chat-intro" style="font-size:13px;color:var(--text2);margin-bottom:10px">Preguntá en lenguaje natural sobre compras, precios, ranking de clientes, resellers, fichas técnicas o Marketing Budget — ej. "¿Segal compró A520 en la última semana? ¿dónde y a qué precio?". Los datos nunca salen de tu sesión salvo el resultado puntual de cada consulta.</div>
           <div id="ai-chat-log" style="display:flex;flex-direction:column;gap:12px;min-height:220px;max-height:65vh;overflow-y:auto;margin-bottom:10px;padding:4px 2px"></div>
@@ -1820,7 +1847,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '13.10.26.5';
+const APP_VERSION = '13.10.26.6';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -18213,7 +18240,7 @@ function runOneTimeMigrations() {
   }
   if(changed) saveDB();
 }
-document.title = `SalesOps CRM v${APP_VERSION}`;
+document.title = document.documentElement.classList.contains('luckia-app') ? 'LuckIA' : `SalesOps CRM v${APP_VERSION}`;
 const appVersionLabel = document.getElementById('app-version-label');
 if(appVersionLabel) appVersionLabel.textContent = APP_VERSION;
 function _updateCountryLabel() {
@@ -18665,14 +18692,18 @@ _fbAuth.onAuthStateChanged(async (user) => {
       _watchStockDiffBadge();
       // Distribuidor: arrancar en Semáforo directo. "?tab=ia" (acceso directo LuckIA del ícono de
       // la app) abre esa pestaña si el rol la puede ver; si no, sigue al inicio de siempre
-      const _startTab = new URLSearchParams(location.search).get('tab');
+      // App LuckIA: arranca en el chat; si el rol no tiene LuckIA, sale del modo y ve el CRM normal
+      const _luckiaApp = document.documentElement.classList.contains('luckia-app');
+      if(_luckiaApp && !canAccessTab('ia')) document.documentElement.classList.remove('luckia-app');
+      const _startTab = _luckiaApp && canAccessTab('ia') ? 'ia' : new URLSearchParams(location.search).get('tab');
       if(_startTab && TABS.includes(_startTab) && canAccessTab(_startTab)) {
         gotoTab(_startTab);
         if(_startTab === 'ia') setTimeout(() => document.getElementById('ai-chat-input')?.focus(), 300);
       } else {
         gotoTab(role === 'distributor' ? 'semaforo' : 'dashboard');
       }
-      if(_startTab) history.replaceState(null, '', location.pathname); // que recargar no vuelva a forzar la pestaña
+      // "?tab=" se limpia para que recargar no vuelva a forzar la pestaña; "?app=luckia" se queda (es la app)
+      if(!_luckiaApp && new URLSearchParams(location.search).has('tab')) history.replaceState(null, '', location.pathname);
     } else {
       _fbAuth.signOut(); // email no autorizado
       _alert('Tu cuenta no tiene acceso al CRM. Contactá al administrador.', {type:'error', title:'Acceso denegado'});
