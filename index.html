@@ -1847,7 +1847,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '13.10.26.7';
+const APP_VERSION = '13.10.26.8';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -2636,7 +2636,7 @@ const CRM_AI_SYSTEM_PROMPT = `Te llamás LuckIA, el asistente de datos del CRM d
 Respondé preguntas sobre compras de clientes, precios de venta, ranking de clientes y resellers T1/T2/T3 (revendedores agrupados por tier, con ventas por línea de producto y objetivos trimestrales) usando SIEMPRE las herramientas disponibles — nunca inventes cifras ni nombres que no vengan de una herramienta.
 Si el usuario pide un rango de fechas específico (ej. "la última semana") y la herramienta no encuentra nada en ESE rango puntual, antes de responder "no hay compras" volvé a llamar la misma herramienta SIN esa restricción de fecha (todo el historial) para ver si hay compras más viejas — y si las hay, contestá con eso y aclará que no fueron en el rango pedido sino antes (con la fecha real). Recién si tampoco aparece nada en todo el historial, decí que no encontraste compras de ese cliente/modelo.
 Si una herramienta no encuentra resultados después de eso, decilo claramente en vez de suponer.
-Para preguntas sobre características técnicas de productos (specs, comparar modelos, qué modelos cumplen una condición, qué ofrecerle a un cliente) usá ficha_tecnica: son las fichas oficiales cargadas desde las listas de precio de cada línea — nunca completes specs de memoria, y si un modelo no tiene ficha cargada decilo. Podés combinarla con las otras herramientas para cruzar specs con ventas o clientes.
+Para preguntas sobre características técnicas de productos (specs, comparar modelos, qué modelos cumplen una condición, qué ofrecerle a un cliente) usá ficha_tecnica: son las fichas oficiales cargadas desde las listas de precio de cada línea — nunca completes specs de memoria, y si un modelo no tiene ficha cargada decilo. En las fichas "Y" = sí tiene y las specs vienen agrupadas como "Grupo · dato" (ej. "VGA-out Digital · HDMI", "VGA-out Digital · DisplayPort"): antes de responder revisá TODAS las specs del grupo que corresponda (ej. para salidas de video: HDMI, DisplayPort, DVI, D-SUB, Type C) y solo digas que no tiene algo si la ficha lo indica o no figura en ella. Podés combinarla con las otras herramientas para cruzar specs con ventas o clientes.
 Para preguntas sobre plata de Marketing (presupuesto, cuánto queda, cuánto se gastó, por trimestre, por área como NVIDIA/AMD/CND o por cliente) usá presupuesto_marketing. "Cuánta plata tiene" = saldo disponible (remaining budget), pero mostrá también el asignado y lo ya planificado para que se entienda. Para gasto en un tipo de acción puntual (influencers, eventos, streamers, banners…) usá el parámetro buscar; para comparar trimestres llamala sin trimestre y armá una tabla con el total de cada uno y la variación.
 Formato de respuesta:
 1. Primero respondé la pregunta puntual con los datos exactos (fechas, distribuidor, cantidades, precios en USD).
@@ -6539,9 +6539,29 @@ function parseSpecWorkbook(wb, fileName) {
           // más específico que el de arriba: se queda el de arriba
           const subCount = {};
           below.forEach(v => { const k = _specClean(v).toUpperCase(); if(k) subCount[k] = (subCount[k] || 0) + 1; });
-          h = h.map((x,c) => { const sub = _specClean(below[c]); return sub && (!x || subCount[sub.toUpperCase()] === 1) ? sub : x; });
+          // Grupo de arriba combinado sobre varias columnas (Mother: "VGA-out Digital" sobre D-SUB / DVI /
+          // HDMI / Display / Type C): el sub-encabezado solo ("Display: Y") pierde el contexto y LuckIA no
+          // entendía que era DisplayPort → la etiqueta lleva el grupo adelante
+          const groupOf = {};
+          (ws['!merges'] || []).forEach(m => {
+            if(m.s.r !== range.s.r + i || m.e.r !== m.s.r || m.e.c <= m.s.c) return;
+            const g = _specClean(row[m.s.c - range.s.c]);
+            if(g) for(let c = m.s.c; c <= m.e.c; c++) groupOf[c - range.s.c] = g;
+          });
+          h = h.map((x,c) => {
+            let sub = _specClean(below[c]);
+            if(!sub || !(!x || subCount[sub.toUpperCase()] === 1)) return x;
+            const g = groupOf[c];
+            if(!g || g.toUpperCase() === sub.toUpperCase()) return sub;
+            if(/^display$/i.test(sub) && /vga|video|out|salida/i.test(g)) sub = 'DisplayPort';
+            return `${g} · ${sub}`;
+          });
           skipRow = i + 1;
         }
+        // En VGA/Mother, "Display" al lado de una columna HDMI son los puertos DisplayPort ("Display: 3 (2.1a)").
+        // Solo en esas listas: en otras (ej. Monitores) "Display" puede ser el panel
+        if(/\bvga\b|graphics|placa de video|mother|\bmb\b/i.test(fileName + ' ' + sheetName) && h.some(x => /(^|· )hdmi$/i.test(x)))
+          h = h.map(x => /^display$/i.test(x) ? 'DisplayPort' : x);
         hdr = h; codeCol = cc; nameCol = nc;
         continue;
       }
