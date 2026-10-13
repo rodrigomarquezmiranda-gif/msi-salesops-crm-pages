@@ -516,6 +516,9 @@ if(new URLSearchParams(location.search).get('app') === 'luckia') {
 
   /* Hamburger button — hidden on desktop */
   #btn-hamburger { display: none; }
+  /* Botón de la barra con texto largo en la compu y corto en el celular */
+  .tb-label-short { display: none; }
+  @media (max-width: 767px) { .tb-label-long { display: none; } .tb-label-short { display: inline; } }
 
   /* ══════════════════════════════════════════════════════
      App LuckIA (?app=luckia) — solo el chat, a pantalla completa
@@ -766,6 +769,8 @@ if(new URLSearchParams(location.search).get('app') === 'luckia') {
       <div class="topbar-actions">
         <button class="btn" id="btn-semaforo" onclick="gotoTab('semaforo')" style="color:#D08770;border-color:rgba(208,135,112,0.4)"><i class="ti ti-traffic-lights" style="font-size:14px"></i> Semáforo</button>
         <button class="btn" id="btn-sugeridos" onclick="gotoTab('sugeridos')" style="color:#A3BE8C;border-color:rgba(163,190,140,0.4)"><i class="ti ti-shopping-cart" style="font-size:14px"></i> Sugeridos</button>
+        <!-- Solo en Lista de Precios (lo muestra gotoTab) -->
+        <button class="btn btn-primary" id="btn-dl-pricelist" onclick="exportPriceListExcel()" style="display:none"><i class="ti ti-download" style="font-size:14px"></i> <span class="tb-label-long">Descargar Lista de Precios Actual</span><span class="tb-label-short">Descargar lista</span></button>
         <button class="btn btn-primary" onclick="openNewModal()"><i class="ti ti-plus" style="font-size:14px"></i> Nuevo ítem</button>
       </div>
     </header>
@@ -869,7 +874,6 @@ if(new URLSearchParams(location.search).get('app') === 'luckia') {
             <option value="removed">Solo eliminados de la nueva lista</option>
           </select>
           <input type="text" id="price-search" placeholder="Buscar por código o descripción..." oninput="filterPriceTable()" style="padding:8px 10px;border:0.5px solid var(--border2);border-radius:8px;background:var(--bg2);color:var(--text);font-size:13px" />
-          <button class="btn" onclick="exportPriceListExcel()" style="white-space:nowrap;flex-shrink:0"><i class="ti ti-file-spreadsheet" style="font-size:14px"></i> Exportar Lista</button>
         </div>
         <div id="pricelist-table-wrap"></div>
       </div>
@@ -1847,7 +1851,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '13.10.26.8';
+const APP_VERSION = '13.10.26.9';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -3179,6 +3183,11 @@ function gotoTab(tab) {
     document.getElementById('nav-'+t)?.classList.toggle('active', t===tab);
   });
   document.getElementById('page-title').textContent = TITLES[tab] || tab;
+  // Lista de Precios: arriba va "Descargar Lista de Precios Actual" en vez de Semáforo / Sugeridos
+  const _onPricelist = tab === 'pricelist';
+  document.getElementById('btn-dl-pricelist').style.display = _onPricelist ? '' : 'none';
+  document.getElementById('btn-semaforo').style.display = _onPricelist ? 'none' : '';
+  document.getElementById('btn-sugeridos').style.display = _onPricelist ? 'none' : '';
   if(tab==='dashboard') renderDashboard();
   if(tab==='pi') { _piSearch=''; _piColShowAll={}; const inp=document.getElementById('pi-search-input'); if(inp) inp.value=''; }
   if(tab==='rebates') renderRebatesTable();
