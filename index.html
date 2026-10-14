@@ -185,9 +185,13 @@ if(new URLSearchParams(location.search).get('app') === 'luckia') {
   .bc-bar:hover { filter: brightness(1.12) saturate(1.1); }
   .bc-val { animation: chartFadeIn .3s ease both; animation-delay: calc(var(--i, 0) * 60ms + .4s); }
   /* Métricas que cuentan hasta su valor (_countUp) */
+  /* Donuts (_donutSweep): la máscara se barre en sentido horario; el centro aparece al final. Barras horizontales .grow-x */
+  .donut-sweep { stroke-dasharray: 1; animation: chartDraw .9s cubic-bezier(.4,0,.2,1) both; }
+  .donut-center { animation: chartFadeIn .4s ease .6s both; }
+  .grow-x { transform-origin: left; animation: chartGrowX .7s cubic-bezier(.2,.7,.3,1) both; }
   .metric.metric-accent { border-top: 3px solid var(--accent, var(--blue)); }
   @media (prefers-reduced-motion: reduce) {
-    .dash-bar, .dash-bar-val, .dash-bar-usd, .ph-bar, .ph-draw, .ph-area, .ph-pop, .bc-bar, .bc-val { animation: none; }
+    .dash-bar, .dash-bar-val, .dash-bar-usd, .ph-bar, .ph-draw, .ph-area, .ph-pop, .bc-bar, .bc-val, .donut-sweep, .donut-center, .grow-x { animation: none; }
   }
   .ph-tip { position: absolute; pointer-events: none; background: var(--bg); border: 0.5px solid var(--border2); border-radius: var(--radius); box-shadow: 0 4px 14px rgba(46,52,64,0.12); padding: 6px 10px; white-space: nowrap; z-index: 2; }
   .ph-tip-val { font-size: 13px; font-weight: 600; color: var(--text); }
@@ -1885,7 +1889,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '14.10.26.1';
+const APP_VERSION = '14.10.26.2';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -8927,6 +8931,12 @@ function _makePieSlice(cx, cy, R, r, startDeg, endDeg, color, highlight) {
   const opacity = highlight === null ? 1 : (highlight ? 1 : 0.28);
   return `<path d="${d}" fill="${color}" opacity="${opacity}" stroke="#1E2430" stroke-width="1.2"/>`;
 }
+// Envuelve las porciones de un donut en una máscara que se "barre" en sentido horario al aparecer.
+let _donutSeq = 0;
+function _donutSweep(paths, cx, cy, R) {
+  const id = 'dsw' + (++_donutSeq), rr = R / 2 + 4;
+  return `<mask id="${id}"><circle class="donut-sweep" cx="${cx}" cy="${cy}" r="${rr}" fill="none" stroke="#fff" stroke-width="${R + 10}" pathLength="1" transform="rotate(-90 ${cx} ${cy})"/></mask><g mask="url(#${id})">${paths}</g>`;
+}
 
 function _buildDonut(catData, highlightDist) {
   const cx = 90, cy = 90, R = 72, r = 44;
@@ -11890,9 +11900,9 @@ function _mktBuildDonut(slices) {
   }
   return `<svg viewBox="0 0 200 200" width="160" height="160" style="display:block">
     <circle cx="${cx}" cy="${cy}" r="${R+4}" fill="#1E2430"/>
-    ${paths}
+    ${_donutSweep(paths, cx, cy, R)}
     <circle cx="${cx}" cy="${cy}" r="${r}" fill="#252D3A"/>
-    <text x="${cx}" y="${cy+5}" text-anchor="middle" font-size="11" fill="#9EA8BA">TOTAL</text>
+    <text class="donut-center" x="${cx}" y="${cy+5}" text-anchor="middle" font-size="11" fill="#9EA8BA">TOTAL</text>
   </svg>`;
 }
 
@@ -12107,7 +12117,7 @@ function renderMktTab() {
         <td style="text-align:right;color:var(--text3)">${pctRem.toFixed(1)}%</td>
         <td style="min-width:80px">
           <div style="background:var(--bg3);border-radius:4px;height:6px;overflow:hidden">
-            <div style="width:${Math.min(100,pctUsed).toFixed(1)}%;height:100%;background:${barColor}"></div>
+            <div class="grow-x" style="width:${Math.min(100,pctUsed).toFixed(1)}%;height:100%;background:${barColor}"></div>
           </div>
         </td>
       </tr>`;
@@ -12193,11 +12203,11 @@ function renderMktTab() {
     }
     return `<svg viewBox="0 0 220 220" width="200" height="200" style="display:block">
       <circle cx="${cx}" cy="${cy}" r="${R+5}" fill="#1E2430"/>
-      ${paths}
+      ${_donutSweep(paths, cx, cy, R)}
       <circle cx="${cx}" cy="${cy}" r="${ri}" fill="#1A2232"/>
-      <text x="${cx}" y="${cy-8}" text-anchor="middle" font-size="10" fill="#9EA8BA">TOTAL USADO</text>
+      <g class="donut-center"><text x="${cx}" y="${cy-8}" text-anchor="middle" font-size="10" fill="#9EA8BA">TOTAL USADO</text>
       <text x="${cx}" y="${cy+8}" text-anchor="middle" font-size="13" font-weight="700" fill="#FF6600">${usedPct2.toFixed(1)}%</text>
-      <text x="${cx}" y="${cy+22}" text-anchor="middle" font-size="9" fill="#9EA8BA">${fmtAmt(overviewTotal)}</text>
+      <text x="${cx}" y="${cy+22}" text-anchor="middle" font-size="9" fill="#9EA8BA">${fmtAmt(overviewTotal)}</text></g>
     </svg>`;
   };
 
@@ -12265,9 +12275,9 @@ function renderMktTab() {
         }
         return `<svg viewBox="0 0 120 120" width="110" height="110" style="display:block;margin:0 auto">
           <circle cx="${cx}" cy="${cy}" r="${R+4}" fill="#1E2430"/>
-          ${paths}
+          ${_donutSweep(paths, cx, cy, R)}
           <circle cx="${cx}" cy="${cy}" r="${ri}" fill="#1A2232"/>
-          <text x="${cx}" y="${cy+4}" text-anchor="middle" font-size="9" fill="#9EA8BA">${pct.toFixed(0)}%</text>
+          <text class="donut-center" x="${cx}" y="${cy+4}" text-anchor="middle" font-size="9" fill="#9EA8BA">${pct.toFixed(0)}%</text>
         </svg>`;
       })() : '';
 
