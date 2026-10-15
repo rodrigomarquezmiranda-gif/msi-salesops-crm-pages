@@ -1889,7 +1889,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '14.10.26.2';
+const APP_VERSION = '15.10.26.1';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -17110,7 +17110,7 @@ function renderImportsTab() {
       importerData.forEach(im => im.brands.forEach(b => { brandTotals.set(b.brand, (brandTotals.get(b.brand)||0) + b.qty); }));
       let allBrands = Array.from(brandTotals.entries()).sort((a,b)=>b[1]-a[1]).map(e=>e[0]);
       // Apply global filter to columns too
-      if(importsGlobalOnly) allBrands = allBrands.filter(b => isGlobalBrand(b) || normDesc(b)==='MSI');
+      if(importsGlobalOnly) allBrands = allBrands.filter(b => _impBrandIsGlobal(batch, b));
       // Show top 8 brands + "Otros" if more
       const MAX_COLS = 8;
       const topBrands = allBrands.slice(0, MAX_COLS);
@@ -17397,6 +17397,20 @@ function normBrandName(b) {
   // Strip "MARCA: " prefix that some export formats include as column headers
   return String(b||'').replace(/^MARCA\s*:\s*/i,'').trim();
 }
+// Con "Solo marcas globales" activo, las vistas/exports por importador tienen que trabajar sólo
+// con operaciones de marcas globales (si no, un importador de marca local como Sentey aparece en
+// el ranking con todas sus unidades). Usa la columna "Tipo" del ranking completo si el archivo
+// la trae; si no, nuestra lista de marcas globales.
+function _impBrandIsGlobal(batch, brand) {
+  if(normDesc(brand)==='MSI') return true;
+  const fr = (batch.fullBrandRanking||[]).find(r => r.type && normDesc(r.brand)===normDesc(brand));
+  return fr ? fr.type.toUpperCase()==='GLOBAL' : isGlobalBrand(brand);
+}
+function _impScopedTxs(batch) {
+  const txs = batch.transactions || [];
+  if(!importsGlobalOnly) return txs;
+  return txs.filter(t => _impBrandIsGlobal(batch, normBrandName(t.brand) || normBrandName(t.model) || ''));
+}
 function _groupImporterBrand(txs) {
   const byImporter = new Map();
   txs.forEach(t => {
@@ -17412,11 +17426,12 @@ function _groupImporterBrand(txs) {
 }
 function computeImporterBrandBreakdown(batch, monthFilterSet) {
   if(!batch.transactions) return null;
+  const scopedTxs = _impScopedTxs(batch);
   const isFiltered = monthFilterSet && monthFilterSet.size > 0;
   // Try filtered first (only rows with actual month tags matching the filter)
   const filteredTxs = isFiltered
-    ? batch.transactions.filter(t => t.month !== null && monthMatchesFilter(t.month, monthFilterSet))
-    : batch.transactions;
+    ? scopedTxs.filter(t => t.month !== null && monthMatchesFilter(t.month, monthFilterSet))
+    : scopedTxs;
   const hasExactMatch = !isFiltered || filteredTxs.length > 0;
 
   let byImporter, isEstimated = false;
@@ -17426,7 +17441,7 @@ function computeImporterBrandBreakdown(batch, monthFilterSet) {
     // No transaction has a real month tag matching the filter (wide-format file, month:null).
     // Build a proportional estimate: distribute the ACCURATE monthly brand totals (from the
     // Evolución Mensual matrix) across importers using their full-period brand share.
-    const fullByImporter = _groupImporterBrand(batch.transactions);
+    const fullByImporter = _groupImporterBrand(scopedTxs);
     const fullBrandTotals = {};
     fullByImporter.forEach(im => im.brands.forEach((qty, brand) => { fullBrandTotals[brand] = (fullBrandTotals[brand]||0) + qty; }));
     const filteredMonthly = getImportsSelectedMonthly(batch);
@@ -17729,8 +17744,9 @@ function computeImportsBrandQuarterly(batch, monthFilterSet) {
 function computeImportsImporterQuarterly(batch, monthFilterSet) {
   if(!batch.transactions || !batch.transactions.length) return null;
   const isFiltered = monthFilterSet && monthFilterSet.size > 0;
-  let withMonth = batch.transactions.filter(t => t.month);
-  if(withMonth.length < batch.transactions.length * 0.5) return null; // sin cobertura suficiente de mes → no es confiable
+  const scopedTxs = _impScopedTxs(batch);
+  let withMonth = scopedTxs.filter(t => t.month);
+  if(withMonth.length < scopedTxs.length * 0.5) return null; // sin cobertura suficiente de mes → no es confiable
   if(isFiltered) withMonth = withMonth.filter(t => monthFilterSet.has(t.month));
   const months = Array.from(new Set(withMonth.map(t => t.month))).sort();
   if(!months.length) return null;
@@ -17763,7 +17779,7 @@ function computeImporterBrandPivot(batch, monthFilterSet) {
   const brandTotals = new Map();
   importerData.forEach(im => im.brands.forEach(b => { brandTotals.set(b.brand, (brandTotals.get(b.brand)||0) + b.qty); }));
   let allBrands = Array.from(brandTotals.entries()).sort((a,b)=>b[1]-a[1]).map(e=>e[0]);
-  if(importsGlobalOnly) allBrands = allBrands.filter(b => isGlobalBrand(b) || normDesc(b)==='MSI');
+  if(importsGlobalOnly) allBrands = allBrands.filter(b => _impBrandIsGlobal(batch, b));
   const MAX_COLS = 8;
   const topBrands = allBrands.slice(0, MAX_COLS);
   const hasOthers = allBrands.length > MAX_COLS;
