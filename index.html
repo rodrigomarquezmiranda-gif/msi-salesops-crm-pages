@@ -1889,7 +1889,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '15.10.26.1';
+const APP_VERSION = '16.10.26.2';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -5466,6 +5466,10 @@ function renderDashboardHome() {
   const expected = Object.keys(DISTRIBUTORS).filter(dk => w12.some(w => w.dks.includes(dk))).length;
 
   const fmtWk = wk => { const [y,m,d] = wk.split('-'); return `${d}/${m}`; };
+  // Número de semana ISO (lunes a domingo; la semana 1 es la que tiene el primer jueves del año)
+  const wkNum = wk => { const d = new Date(wk + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 3); const y0 = new Date(Date.UTC(d.getUTCFullYear(), 0, 4)); return 1 + Math.round(((d - y0) / DAY_MS - 3 + (y0.getUTCDay() + 6) % 7) / 7); };
+  const wkEnd = wk => { const d = new Date(wk + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 6); return d.toISOString().slice(0,10); };
+  const fmtWkRange = wk => `semana ${wkNum(wk)} · ${fmtWk(wk)} al ${fmtWk(wkEnd(wk))}`;
   const tile = (label, value, sub) => `<div class="dash-tile"><span class="dash-tile-label">${label}</span><span class="dash-tile-value">${value}</span><span class="dash-tile-sub">${sub}</span></div>`;
   const pctTxt = v => v == null ? '' : `${v > 0 ? '▲ +' : v < 0 ? '▼ ' : ''}${v.toLocaleString('es-AR', { maximumFractionDigits: 1 })}%`;
 
@@ -5473,7 +5477,7 @@ function renderDashboardHome() {
   const bars = w12.map((w, i) => {
     const isLast = i === w12.length - 1, partial = w.dks.length < expected;
     const missing = Object.keys(DISTRIBUTORS).filter(dk => !w.dks.includes(dk) && (expected === 0 || w12.some(x => x.dks.includes(dk))));
-    const tip = `Semana del ${fmtWk(w.wk)}: ${_dashFmt(w.qty)} u. · ${_dashUSD(w.usd)}` + (partial ? ` · sin reporte de ${missing.map(dk => DISTRIBUTORS[dk]).join(', ')}` : '');
+    const tip = `Semana ${wkNum(w.wk)} (${fmtWk(w.wk)} al ${fmtWk(wkEnd(w.wk))}):${_dashFmt(w.qty)} u. · ${_dashUSD(w.usd)}` + (partial ? ` · sin reporte de ${missing.map(dk => DISTRIBUTORS[dk]).join(', ')}` : '');
     return `<div class="dash-bar-col" title="${esc(tip)}" style="--i:${i}">
       <span class="dash-bar-val">${_dashCompact(w.qty)}</span>
       <span class="dash-bar-usd">${_dashCompactUSD(w.usd)}</span>
@@ -5508,7 +5512,7 @@ function renderDashboardHome() {
         <span class="dash-pend-n">${p.n}</span><span class="dash-pend-label">${p.label}</span><span class="dash-pend-sub">${esc(p.sub)} →</span></button>`).join('')}</div>
     </section>
     <section class="dash-tiles">
-      ${tile(lastWk ? `Sell-out · semana del ${fmtWk(lastWk)}` : 'Sell-out de la semana', lastWk ? _dashFmt(cur.qty) + ' u.' : '—',
+      ${tile(lastWk ? `Sell-out · ${fmtWkRange(lastWk)}` : 'Sell-out de la semana', lastWk ? _dashFmt(cur.qty) + ' u.' : '—',
         lastWk ? `${_dashUSD(cur.usd)}${delta != null ? ` · <b>${pctTxt(delta)}</b> vs. anterior` : ''}${withLast.length < Object.keys(DISTRIBUTORS).length ? ` · ${withLast.length} de ${Object.keys(DISTRIBUTORS).length} distribuidores` : ''}` : 'Sin reportes de ventas cargados')}
       ${tile('Stock en el canal', stockTotal ? _dashFmt(stockTotal) + ' u.' : '—', coverage != null ? `<b>${coverage.toLocaleString('es-AR', { maximumFractionDigits: 1 })} semanas</b> de cobertura al ritmo de las últimas 4` : 'Sin reportes de stock')}
       ${tile('Órdenes del mes', _dashUSD(monthUSD), `${monthPIs.length} ${monthPIs.length === 1 ? 'orden' : 'órdenes'} · ${delivered} entregada${delivered === 1 ? '' : 's'}`)}
@@ -5521,7 +5525,7 @@ function renderDashboardHome() {
         ${w12.length ? `<div class="dash-bars">${bars}</div>` : '<div class="dash-note">Todavía no hay reportes de ventas cargados.</div>'}
       </section>
       <section class="dash-card" style="flex:1 1 320px">
-        <h3 class="dash-h">Por distribuidor${lastWk ? ' · semana del ' + fmtWk(lastWk) : ''}</h3>
+        <h3 class="dash-h">Por distribuidor${lastWk ? ' · ' + fmtWkRange(lastWk) : ''}</h3>
         <div class="table-scroll"><table class="data-table" style="font-size:13px"><thead><tr><th>Distribuidor</th><th style="text-align:right">Sell-out</th><th style="text-align:right">Cobertura</th></tr></thead><tbody>${distRows}</tbody></table></div>
       </section>
     </div>
@@ -8965,9 +8969,9 @@ function _buildDonut(catData, highlightDist) {
 
   return `<svg viewBox="0 0 180 180" width="160" height="160" style="display:block;margin:0 auto">
     <circle cx="${cx}" cy="${cy}" r="${R+4}" fill="#1E2430"/>
-    ${slices}
+    ${_donutSweep(slices, cx, cy, R)}
     <circle cx="${cx}" cy="${cy}" r="${r}" fill="#252D3A"/>
-    ${centerLabel}
+    <g class="donut-center">${centerLabel}</g>
   </svg>`;
 }
 
@@ -9001,14 +9005,14 @@ function renderShareTab() {
     const barsHtml = SF_DIST_KEYS
       .filter(dk => catData[dk] > 0)
       .sort((a,b) => catData[b] - catData[a])
-      .map(dk => {
+      .map((dk, i) => {
         const pct = Math.round((catData[dk]/total)*100);
         const isMe = dk === highlightDist;
         return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
           <span style="width:8px;height:8px;border-radius:2px;background:${SF_DIST_COLORS[dk]};display:inline-block;flex-shrink:0;${!isMe&&highlightDist?'opacity:0.4':''}"></span>
           <span style="font-size:11px;color:var(--text${!isMe&&highlightDist?'3':''});min-width:90px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${SF_DIST_SHORT[dk]}</span>
           <div style="flex:1;background:var(--bg);border-radius:3px;height:6px;overflow:hidden">
-            <div style="width:${pct}%;height:100%;background:${SF_DIST_COLORS[dk]};${!isMe&&highlightDist?'opacity:0.35':''}border-radius:3px"></div>
+            <div class="grow-x" style="width:${pct}%;height:100%;background:${SF_DIST_COLORS[dk]};${!isMe&&highlightDist?'opacity:0.35':''}border-radius:3px;animation-delay:${.3 + i * .08}s"></div>
           </div>
           <span style="font-size:11px;font-weight:${isMe?700:400};color:${isMe?'#ECEFF4':'var(--text3)'};min-width:32px;text-align:right">${pct}%</span>
         </div>`;
@@ -9016,7 +9020,7 @@ function renderShareTab() {
 
     return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:18px 16px;display:flex;flex-direction:column;gap:10px;min-width:240px;max-width:300px">
       <div style="font-size:13px;font-weight:700;color:var(--text);text-align:center;letter-spacing:0.02em">${SF_CAT_LABELS_SHARE[cat]||cat.toUpperCase()}</div>
-      <div style="font-size:10px;color:var(--text3);text-align:center">${total.toLocaleString('es-AR')} unidades vendidas</div>
+      <div style="font-size:10px;color:var(--text3);text-align:center"><span data-count="${total}">${total.toLocaleString('es-AR')}</span> unidades vendidas</div>
       ${donut}
       ${highlightDist ? '' : `<div style="margin-top:6px">${barsHtml}</div>`}
     </div>`;
@@ -9035,6 +9039,7 @@ function renderShareTab() {
   <div style="display:flex;flex-wrap:wrap;gap:16px">
     ${cardsHtml}
   </div>`;
+  _countUp(el);
 }
 
 // ============================================================
