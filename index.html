@@ -1889,7 +1889,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '19.10.26.5';
+const APP_VERSION = '19.10.26.6';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -2013,6 +2013,20 @@ const IDB = {
   }
 };
 
+// Notebooks: MSI Argentina no vende notebooks (es otra división), así que no tienen que aparecer
+// en ninguna parte del CRM. Algunos distys (Elit, Invid, Compragamer…) las mandan en sus reportes:
+// las filas se pasan a s._hiddenRows en vez de borrarlas — siguen guardadas en Firebase (el
+// guardado escribe el reporte entero), pero ninguna pantalla lee ese campo.
+const _isNotebookRow = r => /\bNOTEBOOK\b|\bLAPTOP\b/i.test(String((r && r.description) || '') + ' ' + String((r && r.code) || ''));
+function _hideNotebookRows(list) {
+  (list || []).forEach(s => {
+    if(!s || !Array.isArray(s.rows) || !s.rows.some(_isNotebookRow)) return;
+    s._hiddenRows = [...(s._hiddenRows || []), ...s.rows.filter(_isNotebookRow)];
+    s.rows = s.rows.filter(r => !_isNotebookRow(r));
+  });
+  return list;
+}
+
 async function loadDB() {
   // Migración única: IndexedDB local → Firebase (primera vez que se abre esta versión)
   if (!localStorage.getItem('salesops_fb_migrated')) {
@@ -2106,6 +2120,7 @@ async function loadDB() {
     }
   } catch(e) { console.error('Error cargando DB:', e); }
   if (!db.weeklyReports) db.weeklyReports = [];
+  _hideNotebookRows(db.weeklyReports);
   if (!db.imports) db.imports = [];
   // Load resellers config
   try {
@@ -2350,7 +2365,7 @@ function _startRealtimeSync() {
     },
     {
       key: _yk('salesops_weekly'),
-      apply: raw => { db.weeklyReports = JSON.parse(raw); },
+      apply: raw => { db.weeklyReports = _hideNotebookRows(JSON.parse(raw)); },
       render: () => {
         const nb = document.getElementById('nb-rotation');
         if(nb) nb.textContent = db.weeklyReports.length;
@@ -2957,6 +2972,7 @@ async function importBackup(input) {
     if(!backup || !backup.db) throw new Error('El archivo no parece ser un respaldo válido de SalesOps CRM.');
     db = backup.db;
     if(!db.weeklyReports) db.weeklyReports = [];
+    _hideNotebookRows(db.weeklyReports);
     if(backup.priceList) priceList = backup.priceList;
     saveDB();
     savePriceList();
@@ -11841,6 +11857,7 @@ function _normalizeProductDesc(desc) {
 }
 
 function upsertSnapshot(snap) {
+  _hideNotebookRows([snap]);
   // Normalize product descriptions before storing
   if(snap.rows) snap.rows = snap.rows.map(r => r.description ? { ...r, description: _normalizeProductDesc(r.description) } : r);
 
