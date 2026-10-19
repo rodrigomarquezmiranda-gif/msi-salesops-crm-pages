@@ -1889,7 +1889,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '19.10.26.6';
+const APP_VERSION = '19.10.26.7';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -2143,7 +2143,7 @@ async function loadDB() {
   try { const mktRaw = await _idbGetYear('salesops_mkt').catch(()=>null); if(mktRaw) db.mkt = JSON.parse(mktRaw); } catch(e) {}
   try { const p = await _pre.pl; if(p) priceList = JSON.parse(p); } catch(e) {}
   try { const sp = await _pre.specs; if(sp) { productSpecs = JSON.parse(sp); _specIndexCache = null; } } catch(e) {}
-  try { const sn = await _pre.sfnames; if(sn) sfNames = Object.assign({ approved:false, approvedAt:null, map:{} }, JSON.parse(sn)); } catch(e) {}
+  try { const sn = await _pre.sfnames; if(sn) sfNames = Object.assign({ map:{} }, JSON.parse(sn)); } catch(e) {}
   if (!priceList.lastDiff) priceList.lastDiff = null;
   if (!priceList.prevSourceFile) priceList.prevSourceFile = null;
 }
@@ -7878,9 +7878,9 @@ function _sfMatchDist(clientStr) {
 //   3) descripción: todas las palabras del modelo de la lista tienen que estar en la del disty
 // Lo que no está en la lista queda con un nombre limpio armado desde el disty. Las equivalencias
 // que el admin elige a mano se guardan en Firebase (salesops_sf_names) y mandan sobre todo lo demás.
-// Mientras sfNames.approved sea false el Semáforo real sigue como antes (solo se ve en la vista previa).
-let sfNames = { approved:false, approvedAt:null, map:{} };
-let _sfNmLocalPreview = false;   // admin: ver el Semáforo con los nombres nuevos sin aprobar (solo esta sesión)
+// Es el único Semáforo desde 19/10/2026 (el armado viejo por clave de modelo queda solo como comparación
+// en la pantalla de nombres: buildSemaforoData({ plNames:false })).
+let sfNames = { map:{} };
 const _SF_NM_EXCLUDE = [/\bNOTEBOOK\b/i, /\bA68HM/i, /\bGT\s*730K?\b/i, /\bRX\s*6400\b/i, /\bH110M\b/i, /\bH310M\b/i, /\bH510M\b/i];
 const _SF_NM_DISCONT = /\b(?:A320M|B450M)\b/i;
 const _SF_NM_CD      = /CAJA\s+DA[ÑN]ADA|\(CD\)|^CAJA\s/i;
@@ -8047,7 +8047,7 @@ function _sfResolveName(desc, code, src) {
 }
 
 function buildSemaforoData(opts) {
-  const usePL = opts && opts.plNames != null ? !!opts.plNames : !!(sfNames.approved || (_sfNmLocalPreview && _currentRole === 'admin'));
+  const usePL = opts && opts.plNames != null ? !!opts.plNames : true;
   const trace = opts && opts.trace ? [] : null;
   const latestSnap = {};
   SF_DIST_KEYS.forEach(dk => {
@@ -8294,21 +8294,15 @@ function _renderSfNamesPreview() {
   let html = `<div class="modal" style="max-width:1180px;width:96vw;max-height:92vh;overflow:auto">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:10px">
       <div>
-        <div style="font-size:17px;font-weight:700">Semáforo con nombres de la lista de precios</div>
-        <div style="font-size:12px;color:var(--text3);margin-top:2px">${sfNames.approved
-          ? '<b style="color:#2f9e44">Aprobado</b>: el Semáforo y el PDF ya usan estos nombres.'
-          : '<b style="color:#e8590c">Vista previa</b>: el Semáforo y el PDF que reciben los resellers todavía no cambian.'}</div>
+        <div style="font-size:17px;font-weight:700">Nombres del Semáforo</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:2px">De dónde sale cada fila. Con el lápiz corregís a qué modelo corresponde lo que reporta un disty; queda guardado para las próximas semanas.</div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn" onclick="exportSemaforoPDF({plNames:true,preview:true})"><i class="ti ti-file-type-pdf" style="font-size:13px"></i> PDF de prueba</button>
-        ${sfNames.approved
-          ? `<button class="btn" onclick="_sfnmSetApproved(false)">Volver a los nombres anteriores</button>`
-          : `<button class="btn btn-primary" onclick="_sfnmSetApproved(true)"><i class="ti ti-check" style="font-size:13px"></i> Aprobar y usar en el Semáforo</button>`}
         <button class="btn" onclick="closeSfNamesPreview()">Cerrar</button>
       </div>
     </div>
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--text2);padding:8px 10px;background:var(--bg2);border-radius:8px;margin-bottom:12px">
-      <span>Filas del Semáforo: <b>${before.products.length}</b> hoy → <b>${after.products.length}</b> con nombres de lista</span>
+      <span>Filas del Semáforo: <b>${after.products.length}</b> (sin unificar nombres serían ${before.products.length})</span>
       <span>${_sfnmPill('LISTA','rgba(55,178,77,0.15)','#2f9e44')} ${nLista}</span>
       <span>${_sfnmPill('REGLA','rgba(253,126,20,0.15)','#e8590c')} ${nRegla}</span>
       <span>${_sfnmPill('MANUAL','rgba(94,129,172,0.18)','#5E81AC')} ${nManual}</span>
@@ -8384,15 +8378,6 @@ async function _sfnmSaveEdit() {
   _renderSfNamesPreview();
   if(currentTab === 'semaforo') renderSemaforoTab();
   toast('Equivalencia guardada');
-}
-async function _sfnmSetApproved(on) {
-  if(on && !await _confirm('El Semáforo y el PDF que reciben los resellers van a pasar a usar los nombres de la lista de precios. ¿Aprobar?')) return;
-  const prev = JSON.parse(JSON.stringify(sfNames));
-  sfNames = { ...sfNames, approved: !!on, approvedAt: on ? new Date().toISOString() : null };
-  if(!await _sfnmPersist(prev)) return;
-  _renderSfNamesPreview();
-  if(currentTab === 'semaforo') renderSemaforoTab();
-  toast(on ? 'Semáforo con nombres de lista aprobado' : 'El Semáforo volvió a los nombres anteriores');
 }
 
 // ─── SEMÁFORO: VISTA "SOLO TRÁNSITO" ─────────────────────────────────────────
@@ -8673,12 +8658,8 @@ function renderSemaforoTab() {
     <button class="btn" onclick="exportSemaforoPDF()" style="color:#FD7E14;border-color:rgba(208,135,112,0.4)">
       <i class="ti ti-file-type-pdf" style="font-size:14px"></i> Exportar PDF
     </button>
-    ${_currentRole === 'admin' ? `<button class="btn" onclick="openSfNamesPreview()" title="Nombres de la lista de precios en el Semáforo"><i class="ti ti-tags" style="font-size:14px"></i> Nombres de lista${sfNames.approved ? '' : ' (vista previa)'}</button>` : ''}
-    ${_currentRole === 'admin' && !sfNames.approved ? `<button class="btn${_sfNmLocalPreview ? ' btn-primary' : ''}" onclick="_sfNmLocalPreview=!_sfNmLocalPreview;renderSemaforoTab()" title="Solo para vos y solo en esta sesión: no cambia lo que ven los demás">${_sfNmLocalPreview ? 'Ver Semáforo actual' : 'Ver Semáforo nuevo'}</button>` : ''}
+    ${_currentRole === 'admin' ? `<button class="btn" onclick="openSfNamesPreview()" title="Ver y corregir de dónde sale el nombre de cada fila"><i class="ti ti-tags" style="font-size:14px"></i> Nombres de lista</button>` : ''}
   </div>
-</div>
-${_currentRole === 'admin' && _sfNmLocalPreview && !sfNames.approved ? `<div style="margin:-8px 0 12px;padding:8px 12px;border-radius:8px;background:rgba(253,126,20,0.12);color:#e8590c;font-size:12px;font-weight:600"><i class="ti ti-eye"></i> Vista previa: así va a quedar con los nombres de la lista. Solo lo ves vos (los demás siguen con el Semáforo actual). El PDF que exportes ahora sale con los nombres nuevos.</div>` : ''}
-<div style="display:none">
 </div>
 ${_buildTransitAlertPanel(transitData)}
 <div class="sf-wrap">
