@@ -1889,7 +1889,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '19.10.26.3';
+const APP_VERSION = '19.10.26.4';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -3980,6 +3980,11 @@ const _SEMAFORO_NOISE = new Set([
   'GAB','GABINETE','GABINETES','CAJA','CHASSIS',
   // Monitor resolution/HDR spec noise (spaced-out forms not already covered by FULLHD/etc above)
   'FULL','HD','HDR','2K','4K',
+  // Descriptores de gabinete que cada disty agrega distinto ("MEG MAESTRO 900R BLACK V TEMP SIN
+  // FUENTE" / "MEG MAESTRO 900R FULL TOWER FAN ARB X3" son el mismo modelo)
+  'TEMP','TEMPLADO','VIDRIO','FAN','FANS','ARB','ARGB','TOWER','MIDTOWER',
+  // Tipo de panel: "MAG 274QP QD-OLED" = "MAG 274QP 2XHDMI + 1XDP" (el código de modelo ya distingue)
+  'QDOLED','QD',
 ]);
 // Collapse an immediately-repeated word-phrase ANYWHERE in the string, e.g.
 // "PRO PANO M120L PRO PANO M120L WHITE" → "PRO PANO M120L WHITE" and
@@ -4076,6 +4081,7 @@ function extractMSIModelKey(desc, category) {
   // Strip cooling fan size in mm (360MM, 240MM, 120MM) and fan-count multiples (3X, 2X)
   s = s.replace(/\b\d+\s*MM\b/ig, '');
   s = s.replace(/\b\d+\s*[Xx]\b/g, '');
+  s = s.replace(/\bX\d\b/g, '');   // cantidad de fans al revés ("FAN ARB X3")
   // Strip monitor refresh rates (120HZ, 144HZ, 165HZ, 180HZ, 200HZ)
   // Model codes already differentiate monitors; Hz is inconsistently included by distributors
   s = s.replace(/\b\d+\s*HZ\b/ig, '');
