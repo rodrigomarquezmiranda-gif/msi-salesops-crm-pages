@@ -1889,7 +1889,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '19.10.26.1';
+const APP_VERSION = '19.10.26.2';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -8553,6 +8553,41 @@ function _showPIAlertToast(msg) {
   setTimeout(() => { if(toast.parentNode) toast.remove(); }, 30000);
 }
 
+// Escudo + dragón MSI en dorado para PDFs: se arma desde msi-watermark.png (dibujo oscuro sobre
+// blanco, casi transparente) → lo oscuro pasa a opaco y se pinta dorado; se recorta al escudo.
+// Devuelve { data, w, h } o null si no se pudo cargar (el PDF sale igual, sin logo).
+let _pdfMsiLogoGoldCache = null;
+function _pdfMsiLogoGold() {
+  if(_pdfMsiLogoGoldCache) return Promise.resolve(_pdfMsiLogoGoldCache);
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const w = img.naturalWidth, h = img.naturalHeight;
+        const c = document.createElement('canvas'); c.width = w; c.height = h;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const id = ctx.getImageData(0, 0, w, h), px = id.data;
+        let x0 = w, y0 = h, x1 = -1, y1 = -1;
+        for(let i = 0; i < px.length; i += 4) {
+          const a = Math.min(255, Math.round((255 - (px[i] + px[i+1] + px[i+2]) / 3) * 1.15));
+          px[i] = 219; px[i+1] = 163; px[i+2] = 78; px[i+3] = a;
+          if(a > 40) { const p = i / 4, x = p % w, y = (p - x) / w; if(x < x0) x0 = x; if(x > x1) x1 = x; if(y < y0) y0 = y; if(y > y1) y1 = y; }
+        }
+        if(x1 < 0) { resolve(null); return; }
+        ctx.putImageData(id, 0, 0);
+        const cw = x1 - x0 + 1, ch = y1 - y0 + 1;
+        const out = document.createElement('canvas'); out.width = cw; out.height = ch;
+        out.getContext('2d').drawImage(c, x0, y0, cw, ch, 0, 0, cw, ch);
+        _pdfMsiLogoGoldCache = { data: out.toDataURL('image/png'), w: cw, h: ch };
+        resolve(_pdfMsiLogoGoldCache);
+      } catch(e) { resolve(null); }
+    };
+    img.onerror = () => resolve(null);
+    img.src = 'msi-watermark.png';
+  });
+}
+
 async function exportSemaforoPDF() {
   if(!await _libsOk()) return;
   if(!window.jspdf) { _alert('La librería de PDF no cargó. Revisá la conexión a internet.', {type:'error'}); return; }
@@ -8569,20 +8604,58 @@ async function exportSemaforoPDF() {
 
   const doc = new jsPDF({ orientation:'landscape', unit:'pt', format:'a4' });
   const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
 
-  doc.setFillColor(226,35,26);
-  doc.rect(0, 0, pageW, 32, 'F');
-  doc.setTextColor(255,255,255);
-  doc.setFontSize(14); doc.setFont(undefined,'bold');
-  doc.text('GUÍA DE STOCK Y MERCADERÍA EN TRÁNSITO', pageW/2, 21, {align:'center'});
-  doc.setFontSize(8); doc.setFont(undefined,'normal');
-  doc.setFillColor(31,42,68);
-  doc.rect(0,32,pageW,16,'F');
-  doc.setTextColor(180,180,180);
-  doc.text(`Generado: ${dateStr}  ·  Stock basado en los últimos reportes cargados por distribuidor`, pageW/2, 43, {align:'center'});
+  // Estética "buque insignia" MSI (línea MEG / GODLIKE): negro + dorado, colores tomados de msi.com
+  const GOLD = [219,163,78], GOLD_LIGHT = [241,216,167], BLACK = [19,19,19], BLACK2 = [26,26,26], BLACK3 = [34,34,34];
+  const logo = await _pdfMsiLogoGold();
+  const HEAD_H = 62;
 
   const stockLabel = qty => { if(!qty||qty<=0) return ''; if(qty<10) return 'Bajo'; if(qty<20) return 'Medio'; return 'Alto'; };
-  const stockColor = qty => { if(!qty||qty<=0) return null; if(qty<10) return [191,97,106]; if(qty<20) return [208,135,112]; return [163,190,140]; };
+  const stockColor = qty => { if(!qty||qty<=0) return null; if(qty<10) return [196,64,52]; if(qty<20) return [224,138,46]; return [56,142,84]; };
+
+  const drawHeader = () => {
+    doc.setFillColor(...BLACK); doc.rect(0, 0, pageW, HEAD_H, 'F');
+    // Franjas diagonales doradas a la derecha (degradé hacia el negro)
+    const mix = t => GOLD.map((c,i) => Math.round(c*t + BLACK[i]*(1-t)));
+    [[0.22, 150], [0.45, 112], [1, 78]].forEach(([t, x0]) => {
+      doc.setFillColor(...mix(t));
+      doc.lines([[30, 0], [-22, HEAD_H], [-30, 0]], pageW - x0, 0, [1,1], 'F', true);
+    });
+    let tx = 20;
+    if(logo) {
+      const lh = 46, lw = lh * logo.w / logo.h;
+      doc.addImage(logo.data, 'PNG', 18, (HEAD_H - lh)/2, lw, lh);
+      tx = 18 + lw + 12;
+      doc.setDrawColor(...GOLD); doc.setLineWidth(0.6); doc.line(tx - 6, 12, tx - 6, HEAD_H - 12);
+    }
+    doc.setTextColor(255,255,255); doc.setFont(undefined,'bold'); doc.setFontSize(15);
+    doc.text('GUÍA DE STOCK Y MERCADERÍA EN TRÁNSITO', tx, 27);
+    doc.setTextColor(...GOLD); doc.setFontSize(8.5);
+    doc.text(`MSI ARGENTINA  ·  Generado ${dateStr}`, tx, 40);
+    doc.setTextColor(150,150,150); doc.setFont(undefined,'normal'); doc.setFontSize(7);
+    doc.text('Stock basado en los últimos reportes cargados por distribuidor', tx, 51);
+    // Referencias (a la izquierda de las franjas). Sin rangos de unidades: los distribuidores no
+    // quieren que se puedan deducir sus cantidades exactas de stock.
+    const legend = [['Bajo','',stockColor(1)], ['Medio','',stockColor(10)], ['Alto','stock',stockColor(20)], ['SI','en tránsito',BLACK3]];
+    let lx = pageW - 170;
+    doc.setFontSize(6.5);
+    for(let i = legend.length - 1; i >= 0; i--) {
+      const [chip, txt, col] = legend[i];
+      doc.setFont(undefined,'normal');
+      const tw = txt ? doc.getTextWidth(txt) + 4 : 0;
+      doc.setFont(undefined,'bold');
+      const cw = doc.getTextWidth(chip) + 8;
+      lx -= tw + cw + (txt ? 14 : 4);
+      doc.setFillColor(...col); doc.roundedRect(lx, 36, cw, 11, 2, 2, 'F');
+      if(col === BLACK3) { doc.setDrawColor(...GOLD); doc.setLineWidth(0.5); doc.roundedRect(lx, 36, cw, 11, 2, 2, 'S'); }
+      doc.setTextColor(...(col === BLACK3 ? GOLD : [255,255,255])); doc.text(chip, lx + cw/2, 43.5, {align:'center'});
+      doc.setFont(undefined,'normal'); doc.setTextColor(200,200,200); doc.text(txt, lx + cw + 4, 43.5);
+    }
+    // Filete dorado bajo el encabezado
+    doc.setFillColor(...GOLD); doc.rect(0, HEAD_H, pageW, 2.2, 'F');
+    doc.setFillColor(...GOLD_LIGHT); doc.rect(0, HEAD_H + 2.2, pageW, 0.6, 'F');
+  };
 
   // A4 landscape usable width ≈ 810pt (841.89 - 32 margins)
   // Model col 190pt + 10 data cols × 62pt = 810pt
@@ -8598,8 +8671,8 @@ async function exportSemaforoPDF() {
     ],
     [
       ...pdfKeys.flatMap(() => [
-        { content: 'STK', styles: { halign:'center', fontStyle:'bold' } },
-        { content: 'TRÁ', styles: { halign:'center', fontStyle:'bold' } }
+        { content: 'STK', styles: { halign:'center', fontStyle:'bold', fillColor:BLACK3, textColor:GOLD_LIGHT, fontSize:6.5 } },
+        { content: 'TRÁ', styles: { halign:'center', fontStyle:'bold', fillColor:BLACK3, textColor:GOLD_LIGHT, fontSize:6.5 } }
       ])
     ]
   ];
@@ -8609,7 +8682,7 @@ async function exportSemaforoPDF() {
   products.forEach(p => {
     if(p.category !== lastCat) {
       lastCat = p.category;
-      body.push([{ content: SF_CAT_LABELS[p.category] || p.category.toUpperCase(), colSpan: 1 + pdfKeys.length*2, styles:{fillColor:[94,129,172],textColor:[255,255,255],fontStyle:'bold',fontSize:8,cellPadding:4} }]);
+      body.push([{ content: SF_CAT_LABELS[p.category] || p.category.toUpperCase(), colSpan: 1 + pdfKeys.length*2, styles:{fillColor:GOLD_LIGHT,textColor:BLACK,fontStyle:'bold',fontSize:8,cellPadding:{top:4,bottom:4,left:8,right:4}} }]);
     }
     // Clean display name + truncate to keep on one line
     const modelName = p.displayName.slice(0, 55);
@@ -8620,7 +8693,7 @@ async function exportSemaforoPDF() {
       const col = stockColor(qty);
       row.push({ content: lbl, styles: col ? {fillColor:col, textColor:[255,255,255], fontStyle:'bold', halign:'center'} : {halign:'center'} });
       const hasT = transitData[dk]?.keys.has(p.normModel);
-      row.push({ content: hasT ? 'SI' : '', styles: hasT ? {fillColor:[235,203,139], textColor:[31,42,68], halign:'center', fontStyle:'bold'} : {halign:'center'} });
+      row.push({ content: hasT ? 'SI' : '', styles: hasT ? {fillColor:BLACK3, textColor:GOLD, halign:'center', fontStyle:'bold'} : {halign:'center'} });
     });
     body.push(row);
   });
@@ -8631,18 +8704,35 @@ async function exportSemaforoPDF() {
     colStyles[2 + i*2]   = { cellWidth: DATA_W, halign:'center' };
   });
 
+  const TOP = HEAD_H + 12, FOOT_H = 26;
   doc.autoTable({
-    startY: 54,
+    startY: TOP,
     head,
     body,
     theme: 'grid',
-    styles: { fontSize: 6.5, cellPadding: 3, overflow: 'ellipsize', minCellHeight: 14 },
-    headStyles: { fillColor:[46,52,64], textColor:[255,255,255], fontStyle:'bold', halign:'center', fontSize: 7, minCellHeight: 12 },
+    styles: { fontSize: 6.5, cellPadding: 3, overflow: 'ellipsize', minCellHeight: 14, textColor: BLACK3, lineColor: [214,208,196], lineWidth: 0.4 },
+    headStyles: { fillColor:BLACK2, textColor:GOLD, fontStyle:'bold', halign:'center', fontSize: 7.5, minCellHeight: 13, lineColor:[70,70,70], lineWidth:0.4 },
     columnStyles: colStyles,
-    alternateRowStyles: { fillColor:[240,244,248] },
-    margin: { top:54, left:16, right:16 },
+    alternateRowStyles: { fillColor:[250,248,243] },
+    margin: { top:TOP, left:16, right:16, bottom:FOOT_H + 8 },
     rowPageBreak: 'avoid',
+    didDrawPage: drawHeader,
   });
+
+  // Pie en todas las páginas (con total de páginas)
+  const nPages = doc.internal.getNumberOfPages();
+  for(let i = 1; i <= nPages; i++) {
+    doc.setPage(i);
+    const fy = pageH - FOOT_H;
+    doc.setFillColor(...BLACK); doc.rect(0, fy, pageW, FOOT_H, 'F');
+    doc.setFillColor(...GOLD); doc.rect(0, fy, pageW, 1.4, 'F');
+    doc.setFontSize(7); doc.setFont(undefined,'bold'); doc.setTextColor(...GOLD);
+    doc.text('MSI ARGENTINA', 18, fy + 16);
+    doc.setFont(undefined,'normal'); doc.setTextColor(170,170,170);
+    doc.text('  ·  Guía de stock y mercadería en tránsito  ·  ' + dateStr, 18 + doc.getTextWidth('MSI ARGENTINA'), fy + 16);
+    doc.setTextColor(...GOLD_LIGHT);
+    doc.text(`Página ${i} de ${nPages}`, pageW - 18, fy + 16, {align:'right'});
+  }
 
   doc.save(`semaforo-stock-${today.toISOString().slice(0,10)}.pdf`);
 }
