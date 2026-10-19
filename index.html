@@ -1889,7 +1889,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '19.10.26.4';
+const APP_VERSION = '19.10.26.5';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -2034,6 +2034,7 @@ async function loadDB() {
     meta:  _syncGet('salesops_meta').catch(()=>null),
     pl:    _syncGet('salesops_pricelist').catch(()=>null),
     specs: _syncGet('salesops_specs').catch(()=>null),
+    sfnames: IDB.get('salesops_sf_names').catch(()=>null),
   };
   // ── Load db: try split storage first (new), fall back to monolith (legacy) ──
   // Split storage: each pipeline in its own Firebase key to stay under 10MB limit.
@@ -2127,6 +2128,7 @@ async function loadDB() {
   try { const mktRaw = await _idbGetYear('salesops_mkt').catch(()=>null); if(mktRaw) db.mkt = JSON.parse(mktRaw); } catch(e) {}
   try { const p = await _pre.pl; if(p) priceList = JSON.parse(p); } catch(e) {}
   try { const sp = await _pre.specs; if(sp) { productSpecs = JSON.parse(sp); _specIndexCache = null; } } catch(e) {}
+  try { const sn = await _pre.sfnames; if(sn) sfNames = Object.assign({ approved:false, approvedAt:null, map:{} }, JSON.parse(sn)); } catch(e) {}
   if (!priceList.lastDiff) priceList.lastDiff = null;
   if (!priceList.prevSourceFile) priceList.prevSourceFile = null;
 }
@@ -7852,7 +7854,185 @@ function _sfMatchDist(clientStr) {
   if(nc.includes('ELIT')) return 'elit';
   return null;
 }
-function buildSemaforoData() {
+// ─── SEMÁFORO: NOMBRES DE LA LISTA DE PRECIOS ────────────────────────────────
+// Cada disty escribe el mismo producto distinto; para el Semáforo que va a los resellers cada fila
+// lleva el Marketing Name de la lista de precios. Orden de identificación:
+//   1) número de parte MSI (AIR, Solution Box, órdenes) → nombre de la PI con ese código
+//   2) columna código (Invid / Elit ponen ahí el modelo)
+//   3) descripción: todas las palabras del modelo de la lista tienen que estar en la del disty
+// Lo que no está en la lista queda con un nombre limpio armado desde el disty. Las equivalencias
+// que el admin elige a mano se guardan en Firebase (salesops_sf_names) y mandan sobre todo lo demás.
+// Mientras sfNames.approved sea false el Semáforo real sigue como antes (solo se ve en la vista previa).
+let sfNames = { approved:false, approvedAt:null, map:{} };
+let _sfNmLocalPreview = false;   // admin: ver el Semáforo con los nombres nuevos sin aprobar (solo esta sesión)
+const _SF_NM_EXCLUDE = [/\bNOTEBOOK\b/i, /\bA68HM/i, /\bGT\s*730K?\b/i, /\bRX\s*6400\b/i, /\bH110M\b/i, /\bH310M\b/i, /\bH510M\b/i];
+const _SF_NM_DISCONT = /\b(?:A320M|B450M)\b/i;
+const _SF_NM_CD      = /CAJA\s+DA[ÑN]ADA|\(CD\)|^CAJA\s/i;
+// Reglas fijas acordadas con Rodrigo (19/10/2026): [prueba, nombre final, ¿está en la lista?]
+const _SF_NM_ALIASES = [
+  [s => /\b(?:G210|GT\s*210|N210)\b/.test(s),                                 'N210-MD1G/D3'],
+  [s => /FRIEREN/.test(s) && /COMBO|BUNDLE|TECLADO/.test(s),                  'MSI GAMING GEAR BUNDLE FRIEREN EDITION'],
+  [s => /\bH610M-?S\b/.test(s) && /\bDDR4\b/.test(s),                         'PRO H610M-S DDR4 II'],
+  [s => /\bRTX\s*3060\b/.test(s) && /\bVENTUS\s*2X\b/.test(s) && !/\bV2\b|\bLHR\b/.test(s), 'GeForce RTX 3060 VENTUS 2X 12G OC V1'],
+  [s => /\bA500DN\b/.test(s),                                                 'MAG A500DN II'],
+  [s => /\bA600DN\b/.test(s),                                                 'MAG A600DN II'],
+  [s => /\bA750BN\b/.test(s),                                                 'MAG A750BN PCIE5 III'],
+  [s => /\bX870E\b.*\bTOMAHAWK\b.*\bMAX\b/.test(s) && !/\bWIFI\b/.test(s),    'MAG X870E TOMAHAWK MAX WIFI'],
+  [s => /\bB850M\b.*\bGAMING\b.*\bWIFI\s*6E\b/.test(s) && !/\bPLUS\b|\bGAMING\s+PRO\b/.test(s), 'B850M GAMING WIFI6E', true],
+];
+// Correcciones de tipeo antes de comparar
+const _SF_NM_REWRITE = [
+  [/SHADOW\s*3X\s*[0O]C\b/g, 'SHADOW 3X OC'], [/VENTUS\s*3X\s*[0O]C\b/g, 'VENTUS 3X OC'],
+  [/\b(TI|RTX\s+\d{4})\s+(\d{1,2})\s+(?=SHADOW|VENTUS|GAMING|INSPIRE|SUPRIM)/g, '$1 $2G '],   // "RTX 5070 TI 16 SHADOW" → 16G
+  [/\bMP242E14A\b/g, 'MP242 E14A'], [/\bMP225V\b/g, 'MP225'], [/(?<!PRO\s)\bMP(\d{3})/g, 'PRO MP$1'],
+  [/\bSATA\s*2\.5\b/g, 'SATA 2.5'],
+];
+const _SF_NM_DROP = new Set(['MSI','GEFORCE','NVIDIA','AMD','INTEL','2.5','BOX','THE']);
+const _SF_NM_SOFT = new Set(['MAG','MPG','MEG','OC']);
+// Palabras que cambian el modelo: si el disty la pone y el modelo de la lista no la tiene, no es ese
+const _SF_NM_FLAG = new Set(['WHITE','PZ','II','III','V1','V2','V3','WIFI','WIFI6E','MAX','TI','EVO','GEN4','PLUS','SUPER','PINK','CARBON','TOMAHAWK','EDGE']);
+function _sfNmTok(s) {
+  return String(s||'').toUpperCase().replace(/[”"″()]/g,' ').replace(/WIFI\s+6E/g,'WIFI6E').replace(/\bW\b/g,'WHITE')
+    .replace(/(\d+)\s*GB\b/g,'$1G').replace(/(\d+)\s*TB\b/g,'$1T')
+    .replace(/([A-Z0-9])-([A-Z0-9])/g,'$1$2').replace(/([A-Z0-9])-([A-Z0-9])/g,'$1$2')
+    .split(/[\s,\/+]+/).map(t => t.replace(/^[-.]+|[-.]+$/g,'')).filter(t => t && !_SF_NM_DROP.has(t));
+}
+const _sfNmNorm = s => String(s||'').toUpperCase().replace(/\s+/g,' ').trim();
+let _sfNmIdxCache = null;
+function _sfNmIndex() {
+  const plRef = priceList.products || [], piRef = db.pi || [];
+  if(_sfNmIdxCache && _sfNmIdxCache.plRef === plRef && _sfNmIdxCache.plLen === plRef.length && _sfNmIdxCache.piRef === piRef && _sfNmIdxCache.piLen === piRef.length) return _sfNmIdxCache;
+  const pl = plRef.filter(p => !p.isSubSection && p.desc && !/^(?:Intel|AMD)\s/i.test(p.desc) && p.desc !== 'MEG X' && !/^K33-/.test(p.desc))
+    .map(p => { const t = _sfNmTok(p.desc); return { p, req: t.filter(x => !_SF_NM_SOFT.has(x)), soft: t.filter(x => _SF_NM_SOFT.has(x)), all: new Set(t) }; });
+  const byName = new Map(pl.map(x => [_sfNmNorm(x.p.desc), x.p]));
+  // Número de parte MSI → nombre, desde todas las PIs / invoices cargadas (prefiere el que está en la lista)
+  const pn = new Map();
+  piRef.forEach(pi => [...(pi.lineItems||[]), ...(pi.invoiceItems||[])].forEach(li => {
+    const c = String(li.itemCode||'').toUpperCase().trim(), n = _piItemName(li);
+    if(!c || !n || !/^(?:\d{3}-|S\d{2}-|9S\d-)/.test(c)) return;
+    const prev = pn.get(c), inPL = byName.has(_sfNmNorm(n));
+    if(!prev || (inPL && !prev.inPL) || (inPL === prev.inPL && n.length < prev.n.length)) pn.set(c, { n, inPL });
+  }));
+  return _sfNmIdxCache = { plRef, plLen: plRef.length, piRef, piLen: piRef.length, pl, byName, pn };
+}
+function _sfNmFindPN(code, idx) {
+  code = String(code||'').toUpperCase().trim().replace(/-CD$/,'');
+  if(!code) return null;
+  for(const c of code.split('/')) if(idx.pn.has(c)) return idx.pn.get(c).n;
+  if(code.length >= 10 && /^(?:\d{3}-|S\d{2}-|9S\d-)/.test(code)) {   // Solution Box corta el código a 12 caracteres
+    const hits = [...idx.pn.keys()].filter(k => k.startsWith(code.replace(/-$/,'')));
+    const names = [...new Set(hits.map(h => idx.pn.get(h).n))];
+    if(names.length === 1) return names[0];
+  }
+  return null;
+}
+// Busca el modelo de la lista para un texto. → { name, how } o { review, opts } o null
+function _sfNmMatchText(text, idx) {
+  let s = _sfNmNorm(text);
+  _SF_NM_REWRITE.forEach(([re, to]) => { s = s.replace(re, to); });
+  const exact = idx.byName.get(s);
+  if(exact) return { name: exact.desc, how: 'lista' };
+  const rt = new Set(_sfNmTok(s));
+  const pick = (rtSet, dropWhite) => {
+    const c = idx.pl.filter(x => { const req = dropWhite ? x.req.filter(t => t !== 'WHITE') : x.req; return req.length && req.every(t => rtSet.has(t)) && (!dropWhite || x.all.has('WHITE')); })
+      .map(x => ({ x, s: x.req.length + 0.5 * x.soft.filter(t => rtSet.has(t)).length })).sort((a,b) => b.s - a.s);
+    if(!c.length) return null;
+    const top = c.filter(y => y.s === c[0].s);
+    return top.length > 1 ? { amb: top.map(y => y.x.p.desc) } : { m: top[0].x };
+  };
+  let r = pick(rt), how = 'lista', used = rt;
+  if(!r && rt.has('WIFI')) { const r2 = new Set([...rt].map(t => t === 'WIFI' ? 'WIFI6E' : t)); r = pick(r2); if(r) { how = 'lista (+6E)'; used = r2; } }
+  let noWhite = false;
+  if(!r && !rt.has('WHITE')) { r = pick(rt, true); if(r) { noWhite = true; how = 'lista (versión negra)'; } }
+  if(!r) return null;
+  if(r.amb) return { review: true, opts: r.amb };
+  let name = r.m.p.desc;
+  if(noWhite) name = name.replace(/\s+WHITE\b/i, '');
+  const left = [...used].filter(t => _SF_NM_FLAG.has(t) && !r.m.all.has(t));
+  const vars = left.filter(t => t === 'WHITE' || t === 'PZ'), other = left.filter(t => t !== 'WHITE' && t !== 'PZ');
+  if(other.length) return { review: true, opts: [name], extra: other };
+  if(vars.length) { name += ' ' + vars.join(' '); how = 'lista + ' + vars.join(' '); }
+  return { name, how };
+}
+// Nombre con formato de lista para un modelo que no está en la lista, armado desde la descripción del disty
+function _sfNmCustomName(clean, cat) {
+  const up0 = String(clean||'').toUpperCase();
+  const tpm = /\bTPM\b/.test(up0) && up0.match(/\bMS-(\d{3,5})\b/);   // los TPM se distinguen por el código MS-xxxx
+  if(tpm) return 'MODULO TPM 2.0 MS-' + tpm[1];
+  let s = _stripDescJunk(_collapseRepeatedPhrase(up0)).replace(/\b(\d+)\s*GB\b/g, '$1G');
+  s = s.replace(/\([^)]*\)/g, ' ').replace(/\b\d{2}(?:[.,]\d)?\s*["”″]/g, ' ').replace(/["”″]/g, ' ')
+    .replace(/\b\d+\s*HZ\b/g, ' ').replace(/\b\d+\s*MHZ\b/g, ' ').replace(/\b\d+(?:[.,]\d+)?\s*MS\b/g, ' ').replace(/\b\d+\s*X\s*(?:HDMI|DP)\b/g, ' ')
+    .replace(/\bSIN\s+FUENTE\b|\bFAN\s+RGB\b|\bP\/WINDOWS\/ANDROID\b|\bRGB\s+USB\s+2\.0\s+OPTICAL\b|\bJACK\s*3\.5\b|\bSINGLE\s+SLOT\b|\bVGA\/HDMI\b|\/HDMI\b|\bSIN\s+RAM\b|\bSIN\s+SSD\b/g, ' ')
+    .replace(/\bAURICULARES\s*\+\s*MIC\b|\bMONITOR\s+GAMER\b|\bPLACA\s+DE\s+VIDEO\b|\bWATER\s*COOL(?:ER|ING)\b|\bAIO\s+WC\b|\bMINI\s*PC\b/g, ' ');
+  const DROPW = /^(?:MSI|NVIDIA|GEFORCE|AMD|INTEL|BOX|ATX|MATX|M-ATX|M-ITX|BAREBONE|AM4|AM5|FM2\+?|S\d{4}|LGA|1151|1200|1700|1851|MB|MOTHER|MOTHERBOARD|MOT|VGA|MONITOR|GAB|GABINETE|FUENTE|PSU|DISCO|AURICULARES|MOUSE|CONTROL|ACC|GAMEPAD|WIRELESS|IPS|VA|FHD|WQHD|UWQHD|QHD|UHD|FULL|HD|HDR|CURVO|CURVED|FLAT|RAPID|RAPIDO|HDMI|HDM|DP|GDDR7|FAN|\+|-)$/;
+  let toks = s.split(/\s+/).filter(t => t && !DROPW.test(t) && !/^LGA\d{4}$/.test(t) && !/^\d+W$/.test(t));
+  if(cat === 'motherboard') toks = toks.filter(t => t !== 'DDR5');
+  if(cat === 'monitor' && /^\d{2}$/.test(toks[0] || '')) toks.shift();   // "24 MAG 244F": la pulgada adelante
+  if(cat === 'vga' && /^\d+G$/.test(toks[0] || '')) {          // "16G RTX 5070 TI …" → "RTX 5070 TI 16G …"
+    const capTok = toks.shift(), at = toks.findIndex(t => /^\d{4}$/.test(t));
+    const after = at > -1 && toks[at + 1] === 'TI' ? at + 2 : at + 1;
+    if(at > -1 && !toks.includes(capTok)) toks.splice(after, 0, capTok);
+  }
+  return toks.join(' ').replace(/\s{2,}/g, ' ').trim() || String(clean||'').trim();
+}
+// Resuelve una fila (stock del disty o ítem de una orden). → { key, name, cat, how, disc, cd, exclude, review }
+function _sfResolveName(desc, code, src) {
+  const idx = _sfNmIndex();
+  const raw = String(desc||''), up = raw.toUpperCase(), codeUp = String(code||'').toUpperCase();
+  const all = up + ' ' + codeUp;
+  const mk = _sfNmNorm(src + '|' + raw);
+  const man = sfNames.map && sfNames.map[mk];
+  if(man && man.exclude) return { exclude: true, how: 'manual: excluido' };
+  if(_SF_NM_EXCLUDE.some(re => re.test(all))) return { exclude: true, how: 'regla: no aparece' };
+  const cd = _SF_NM_CD.test(up) || /-CD$/.test(codeUp);
+  let clean = up.replace(/\(?\s*CAJA\s+DA[ÑN]ADA\s*\)?|\(CD\)/g, ' ').replace(/^CAJA\s+/, '');
+  _SF_NM_REWRITE.forEach(([re, to]) => { clean = clean.replace(re, to); });
+  const disc = _SF_NM_DISCONT.test(all);
+  let res = null;
+  const own = !!(man && man.own);
+  if(man && man.name) res = { name: man.name, how: 'manual' };
+  if(!res && !own) { const a = _SF_NM_ALIASES.find(([t]) => t(clean) || t(codeUp)); if(a) res = { name: a[1], how: 'regla' }; }
+  if(!res && !own && /\bCUBI\b|\bMINI\s*PC\b/.test(clean) && !/\b1MA\b|\bNUC\b|\bADL\b|\b1MA-/.test(all)) {
+    const tier = /\bI3\b|086BUS|1215U/.test(all) ? 'i3' : /\bI5\b|015BUS|1235U/.test(all) ? 'i5' : /\bI7\b|016BUS|1255U/.test(all) ? 'i7' : '';
+    if(tier) res = { name: 'Cubi 5 12M ' + tier, how: 'regla', cat: 'minipc' };
+  }
+  let review = null;
+  if(!res && !own) {
+    const pnName = _sfNmFindPN(code, idx);
+    for(const [t, via] of [[pnName, 'nro. de parte'], [code, 'código'], [clean, 'descripción']]) {
+      if(!t) continue;
+      const m = _sfNmMatchText(t, idx);
+      if(m && m.name) { res = { name: m.name, how: m.how + ' · ' + via }; break; }
+      if(m && m.review && !review) review = m;
+    }
+  }
+  const inPL = !!(res && res.name && (idx.byName.has(_sfNmNorm(res.name)) || /^lista/.test(res.how)));
+  const plOf = n => idx.byName.get(_sfNmNorm(n)) || idx.byName.get(_sfNmNorm(n.replace(/\s+(?:WHITE|PZ)$/,'')));
+  let cat = res && res.cat;
+  if(!res) res = { name: null, how: own ? 'manual: nombre del disty' : review ? 'revisar' : 'fuera de lista' };
+  if(!cat) {
+    const plCat = res.name && plOf(res.name)?.category || '';
+    cat = /monitor/i.test(plCat) ? 'monitor' : /^VGA$/i.test(plCat) ? 'vga' : /^MB$/i.test(plCat) ? 'motherboard' : /^SSD$/i.test(plCat) ? 'ssd'
+      : /^PSU$/i.test(plCat) ? 'psu' : /cooling/i.test(plCat) ? 'cooling' : /chassis/i.test(plCat) ? 'gabinete' : /^CUBI$/i.test(plCat) ? 'minipc'
+      : /^AI Solutions$/i.test(plCat) ? 'ai' : /accessor/i.test(plCat) ? 'accesorios' : '';
+    if(!cat) { const c1 = res.name ? classifyProductCategory(res.name) : 'other'; cat = c1 !== 'other' ? c1 : classifyProductCategory(raw); }
+  }
+  // Fuera de la lista: nombre limpio desde el disty y misma agrupación de siempre (clave de modelo)
+  let name = res.name, key;
+  if(name) key = 'PL:' + _sfNmNorm(name);
+  else {
+    name = _sfNmCustomName(clean, cat);
+    const toks = [...new Set(_sfNmTok(name).filter(t => !_SF_NM_SOFT.has(t)))].sort();
+    if(!toks.length) return { exclude: true, how: 'sin modelo' };
+    key = 'K:' + toks.join(' ');
+  }
+  if(cd) { key += '|CD'; name += ' (Caja dañada)'; }
+  return { key, name, cat, how: res.how, disc, cd, inPL, review: review && !res.name ? review : null, manualKey: mk };
+}
+
+function buildSemaforoData(opts) {
+  const usePL = opts && opts.plNames != null ? !!opts.plNames : !!(sfNames.approved || (_sfNmLocalPreview && _currentRole === 'admin'));
+  const trace = opts && opts.trace ? [] : null;
   const latestSnap = {};
   SF_DIST_KEYS.forEach(dk => {
     const snaps = (db.weeklyReports || [])
@@ -7869,6 +8049,16 @@ function buildSemaforoData() {
       if(!r.description) return;
       const qty = r.qty || 0;
       if(qty <= 0) return;
+      if(usePL) {
+        const rs = _sfResolveName(r.description, r.code, dk);
+        if(trace) trace.push({ src: dk, desc: r.description, code: r.code || '', qty, ...rs });
+        if(rs.exclude) return;
+        if(!productMap.has(rs.key)) productMap.set(rs.key, { description: r.description, distQty: {}, plName: rs.name, cat: rs.cat, disc: rs.disc });
+        const e = productMap.get(rs.key);
+        e.distQty[dk] = (e.distQty[dk] || 0) + qty;
+        if(rs.disc) e.disc = true;
+        return;
+      }
       const key = extractMSIModelKey(r.description);
       if(!key) return;
       if(!productMap.has(key)) productMap.set(key, { description: r.description, distQty: {} });
@@ -7881,6 +8071,11 @@ function buildSemaforoData() {
   const products = [];
   productMap.forEach((entry, key) => {
     const total = SF_DIST_KEYS.reduce((s,dk) => s + (entry.distQty[dk]||0), 0);
+    if(total > 0 && entry.plName) {
+      const cat = entry.cat && entry.cat !== 'other' ? entry.cat : 'accesorios';
+      products.push({ model: entry.description, normModel: key, category: cat, distQty: entry.distQty, displayName: entry.plName, disc: !!entry.disc });
+      return;
+    }
     if(total > 0) {
       const cat = classifyProductCategory(entry.description);
       if(cat === 'other') return; // skip unclassified items
@@ -7901,6 +8096,7 @@ function buildSemaforoData() {
 
   // allTransitPIs: every active-transit PI with its resolved distributor key
   const allTransitPIs = [];
+  const tInfo = new Map(); // modo nombres de lista: clave → { name, cat, disc } de los ítems en tránsito
 
   (db.pi || []).filter(pi => _piInTransit(pi)).forEach(pi => {
     // Bug fix: also check pi.disti in case client ≠ distributor name
@@ -7921,7 +8117,13 @@ function buildSemaforoData() {
     if(srcItems.length > 0) {
       srcItems.forEach(li => {
         const nm = _piItemName(li);
-        const k = nm ? extractMSIModelKey(nm) : '';
+        let k = nm ? extractMSIModelKey(nm) : '';
+        if(usePL && nm) {
+          const rs = _sfResolveName(nm, li.itemCode, 'T|' + dk);
+          if(trace) trace.push({ src: 'T|' + dk, desc: nm, code: li.itemCode || '', qty: 0, pi: pi.name, ...rs });
+          k = rs.exclude ? '' : rs.key;
+          if(k && !tInfo.has(k)) tInfo.set(k, rs);
+        }
         if(k) {
           transitData[dk].keys.add(k);
           if(!transitData[dk].pisByKey[k]) transitData[dk].pisByKey[k] = [];
@@ -7943,6 +8145,13 @@ function buildSemaforoData() {
   SF_DIST_KEYS.forEach(dk => {
     transitData[dk].keys.forEach(k => {
       if(stockKeys.has(k)) return; // already in table
+      if(usePL) {
+        const rs = tInfo.get(k);
+        if(!rs) return;
+        stockKeys.add(k);
+        products.push({ model: rs.name, normModel: k, category: rs.cat && rs.cat !== 'other' ? rs.cat : 'accesorios', distQty: {}, displayName: rs.name, isTransitOnly: true, disc: !!rs.disc });
+        return;
+      }
       // Resolve description from the PI's invoiceItems
       const relPIs = transitData[dk].pisByKey[k] || [];
       let desc = '', liCategory = '';
@@ -8001,7 +8210,173 @@ function buildSemaforoData() {
     return a.displayName.localeCompare(b.displayName);
   });
 
-  return { products, transitData, latestSnap, allTransitPIs };
+  return { products, transitData, latestSnap, allTransitPIs, trace };
+}
+
+// ─── SEMÁFORO: VISTA PREVIA DE NOMBRES DE LISTA (solo admin) ─────────────────
+// Muestra cómo queda el Semáforo con los nombres de la lista, de dónde sale cada fila (lo que
+// reporta cada disty / cada orden) y deja corregir a mano cualquier equivalencia. Nada cambia
+// para los resellers hasta "Aprobar".
+let _sfnmEditKey = null;
+function openSfNamesPreview() {
+  if(_currentRole !== 'admin') return;
+  let ov = document.getElementById('sfnm-overlay');
+  if(!ov) {
+    ov = document.createElement('div');
+    ov.id = 'sfnm-overlay'; ov.className = 'overlay';
+    ov.onclick = e => { if(e.target === ov) closeSfNamesPreview(); };
+    document.body.appendChild(ov);
+  }
+  _sfnmEditKey = null;
+  _renderSfNamesPreview();
+  ov.classList.add('open');
+}
+function closeSfNamesPreview() { document.getElementById('sfnm-overlay')?.classList.remove('open'); }
+function _sfnmPLOptions(selected) {
+  const opts = _sfNmIndex().pl.map(x => x.p).sort((a,b) => String(a.category||'').localeCompare(String(b.category||'')) || a.desc.localeCompare(b.desc));
+  let lastCat = null, out = '';
+  opts.forEach(p => {
+    if(p.category !== lastCat) { if(lastCat !== null) out += '</optgroup>'; out += `<optgroup label="${esc(p.category||'Lista')}">`; lastCat = p.category; }
+    out += `<option value="${esc(p.desc)}"${p.desc === selected ? ' selected' : ''}>${esc(p.desc)}</option>`;
+  });
+  return out + (lastCat !== null ? '</optgroup>' : '');
+}
+function _sfnmSrcLabel(src) { const t = String(src||''); return t.startsWith('T|') ? 'Tránsito ' + (SF_DIST_LABELS[t.slice(2)] || t.slice(2)) : (SF_DIST_LABELS[t] || t); }
+function _sfnmPill(txt, bg, fg) { return `<span style="font-size:9.5px;font-weight:700;border-radius:4px;padding:1px 6px;background:${bg};color:${fg};white-space:nowrap">${txt}</span>`; }
+function _sfnmHowPill(t) {
+  if(t.exclude)               return _sfnmPill('NO APARECE','rgba(150,150,150,0.2)','var(--text3)');
+  if(/^manual/.test(t.how))   return _sfnmPill('MANUAL','rgba(94,129,172,0.18)','#5E81AC');
+  if(t.review)                return _sfnmPill('REVISAR','rgba(240,62,62,0.15)','#F03E3E');
+  if(t.inPL)                  return _sfnmPill('LISTA','rgba(55,178,77,0.15)','#2f9e44');
+  if(/^regla/.test(t.how))    return _sfnmPill('REGLA','rgba(253,126,20,0.15)','#e8590c');
+  return _sfnmPill('FUERA DE LISTA','rgba(150,150,150,0.2)','var(--text2)');
+}
+function _sfnmSrcLine(t) {
+  const mk = esc(t.manualKey).replace(/'/g, "\\'");
+  return `<div style="display:flex;gap:6px;align-items:baseline;line-height:1.5">
+    <span style="color:var(--text3);min-width:110px;font-size:10.5px">${esc(_sfnmSrcLabel(t.src))}</span>
+    <span style="flex:1">${esc(t.desc)}${t.code && t.code !== t.desc ? ` <span style="color:var(--text3)">[${esc(t.code)}]</span>` : ''}</span>
+    <span style="color:var(--text3);font-size:10px;white-space:nowrap">${esc(t.how)}</span>
+    <a href="#" onclick="_sfnmStartEdit('${mk}');return false" title="Cambiar a qué modelo corresponde" style="color:var(--brand-text);text-decoration:none"><i class="ti ti-pencil" style="font-size:12px"></i></a>
+  </div>`;
+}
+function _renderSfNamesPreview() {
+  const ov = document.getElementById('sfnm-overlay'); if(!ov) return;
+  const before = buildSemaforoData({ plNames:false });
+  const after  = buildSemaforoData({ plNames:true, trace:true });
+  const trace = after.trace || [];
+  const cnt = f => trace.filter(f).length;
+  const nLista = cnt(t => !t.exclude && t.inPL && !/^manual/.test(t.how));
+  const nRegla = cnt(t => !t.exclude && !t.inPL && /^regla/.test(t.how));
+  const nManual = cnt(t => !t.exclude && /^manual/.test(t.how));
+  const nFuera = cnt(t => !t.exclude && !t.inPL && !t.review && !/^regla|^manual/.test(t.how));
+  const reviewItems = [...new Map(trace.filter(t => t.review).map(t => [t.manualKey, t])).values()];
+  const excl = [...new Map(trace.filter(t => t.exclude).map(t => [t.manualKey, t])).values()];
+  const edit = _sfnmEditKey ? trace.find(t => t.manualKey === _sfnmEditKey) : null;
+  const cur = edit ? (sfNames.map[_sfnmEditKey] || null) : null;
+  const sel = 'padding:6px 8px;border:0.5px solid var(--border2);border-radius:8px;background:var(--bg2);color:var(--text);font-size:12px;max-width:520px';
+  let html = `<div class="modal" style="max-width:1180px;width:96vw;max-height:92vh;overflow:auto">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+      <div>
+        <div style="font-size:17px;font-weight:700">Semáforo con nombres de la lista de precios</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:2px">${sfNames.approved
+          ? '<b style="color:#2f9e44">Aprobado</b>: el Semáforo y el PDF ya usan estos nombres.'
+          : '<b style="color:#e8590c">Vista previa</b>: el Semáforo y el PDF que reciben los resellers todavía no cambian.'}</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" onclick="exportSemaforoPDF({plNames:true,preview:true})"><i class="ti ti-file-type-pdf" style="font-size:13px"></i> PDF de prueba</button>
+        ${sfNames.approved
+          ? `<button class="btn" onclick="_sfnmSetApproved(false)">Volver a los nombres anteriores</button>`
+          : `<button class="btn btn-primary" onclick="_sfnmSetApproved(true)"><i class="ti ti-check" style="font-size:13px"></i> Aprobar y usar en el Semáforo</button>`}
+        <button class="btn" onclick="closeSfNamesPreview()">Cerrar</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--text2);padding:8px 10px;background:var(--bg2);border-radius:8px;margin-bottom:12px">
+      <span>Filas del Semáforo: <b>${before.products.length}</b> hoy → <b>${after.products.length}</b> con nombres de lista</span>
+      <span>${_sfnmPill('LISTA','rgba(55,178,77,0.15)','#2f9e44')} ${nLista}</span>
+      <span>${_sfnmPill('REGLA','rgba(253,126,20,0.15)','#e8590c')} ${nRegla}</span>
+      <span>${_sfnmPill('MANUAL','rgba(94,129,172,0.18)','#5E81AC')} ${nManual}</span>
+      <span>${_sfnmPill('FUERA DE LISTA','rgba(150,150,150,0.2)','var(--text2)')} ${nFuera}</span>
+      <span>${_sfnmPill('REVISAR','rgba(240,62,62,0.15)','#F03E3E')} ${reviewItems.length}</span>
+      <span>${_sfnmPill('NO APARECE','rgba(150,150,150,0.2)','var(--text3)')} ${excl.length}</span>
+    </div>`;
+  if(edit) {
+    html += `<div style="border:1px solid var(--brand);border-radius:8px;padding:10px 12px;margin-bottom:12px;background:var(--bg)">
+      <div style="font-size:12px;color:var(--text3);margin-bottom:4px">${esc(_sfnmSrcLabel(edit.src))} reporta:</div>
+      <div style="font-weight:600;margin-bottom:8px">${esc(edit.desc)}${edit.code ? ` <span style="color:var(--text3);font-weight:400">[${esc(edit.code)}]</span>` : ''}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <select id="sfnm-edit-sel" style="${sel}">
+          <option value="">— Automático —</option>
+          <option value="__own"${cur && cur.own ? ' selected' : ''}>— Usar nombre del disty (fuera de lista) —</option>
+          <option value="__excl"${cur && cur.exclude ? ' selected' : ''}>— Que no aparezca en el Semáforo —</option>
+          ${_sfnmPLOptions(cur && cur.name)}
+        </select>
+        <button class="btn btn-primary" onclick="_sfnmSaveEdit()">Guardar</button>
+        <button class="btn" onclick="_sfnmEditKey=null;_renderSfNamesPreview()">Cancelar</button>
+      </div>
+    </div>`;
+  }
+  if(reviewItems.length) {
+    html += `<div style="font-weight:700;font-size:12px;color:#F03E3E;text-transform:uppercase;margin:6px 0">A revisar (${reviewItems.length})</div>
+      <div style="font-size:12px;margin-bottom:14px">${reviewItems.map(t => _sfnmSrcLine(t)
+        + `<div style="font-size:10.5px;color:var(--text3);margin:0 0 6px 116px">Posibles: ${esc((t.review.opts||[]).join(' · '))}${t.review.extra ? ' — el disty agrega: ' + esc(t.review.extra.join(' ')) : ''}</div>`).join('')}</div>`;
+  }
+  html += `<div style="font-weight:700;font-size:12px;color:var(--text2);text-transform:uppercase;margin:6px 0">Cómo queda (${after.products.length} filas)</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:#1A1A1A;color:#DBA34E">
+        <th style="padding:6px 8px;text-align:left">Modelo</th>
+        <th style="padding:6px 8px;text-align:left">Lo que reporta cada uno</th>
+        <th style="padding:6px 8px;text-align:left;white-space:nowrap">Stock (u.)</th>
+        <th style="padding:6px 8px;text-align:left">Tránsito</th>
+      </tr></thead><tbody>`;
+  let lastCat = null;
+  after.products.forEach((p, i) => {
+    if(p.category !== lastCat) { lastCat = p.category; html += `<tr><td colspan="4" style="background:#F1D8A7;color:#131313;font-weight:700;padding:4px 8px">${esc(SF_CAT_LABELS[p.category] || p.category)}</td></tr>`; }
+    const srcs = trace.filter(t => !t.exclude && t.key === p.normModel);
+    const stock = SF_DIST_KEYS.filter(dk => p.distQty[dk]).map(dk => `${SF_DIST_LABELS[dk]} ${p.distQty[dk]}`).join(' · ');
+    const tr = SF_DIST_KEYS.filter(dk => after.transitData[dk].keys.has(p.normModel)).map(dk => SF_DIST_LABELS[dk]).join(' · ');
+    html += `<tr style="border-bottom:1px solid var(--border2);${i % 2 ? 'background:var(--bg2)' : ''}">
+      <td style="padding:5px 8px;vertical-align:top;font-weight:600;min-width:220px">${esc(p.displayName)} ${srcs[0] ? _sfnmHowPill(srcs[0]) : ''}${p.disc ? ' ' + _sfnmPill('DISCONTINUADO','rgba(150,150,150,0.2)','var(--text3)') : ''}</td>
+      <td style="padding:5px 8px;vertical-align:top;font-size:11px">${srcs.map(_sfnmSrcLine).join('')}</td>
+      <td style="padding:5px 8px;vertical-align:top;font-size:11px;white-space:nowrap">${stock || '—'}</td>
+      <td style="padding:5px 8px;vertical-align:top;font-size:11px">${tr}</td>
+    </tr>`;
+  });
+  html += `</tbody></table>`;
+  if(excl.length) html += `<div style="font-weight:700;font-size:12px;color:var(--text3);text-transform:uppercase;margin:14px 0 6px">No aparecen (${excl.length})</div><div style="font-size:11px">${excl.map(_sfnmSrcLine).join('')}</div>`;
+  html += `</div>`;
+  ov.innerHTML = html;
+}
+function _sfnmStartEdit(mk) { _sfnmEditKey = mk; _renderSfNamesPreview(); document.querySelector('#sfnm-overlay .modal')?.scrollTo({ top:0, behavior:'smooth' }); }
+async function _sfnmPersist(prev) {
+  try { await IDB.set('salesops_sf_names', JSON.stringify(sfNames)); return true; }
+  catch(e) {
+    sfNames = prev;
+    _alert('No se pudo guardar: ' + e.message + (/permission/i.test(e.message) ? ' — hay que habilitar el nodo salesops_sf_names en las reglas de Firebase.' : ''), {type:'error'});
+    return false;
+  }
+}
+async function _sfnmSaveEdit() {
+  const v = document.getElementById('sfnm-edit-sel')?.value || '';
+  const prev = JSON.parse(JSON.stringify(sfNames));
+  const map = { ...(sfNames.map || {}) };
+  if(!v) delete map[_sfnmEditKey];
+  else map[_sfnmEditKey] = { ...(v === '__own' ? { own:true } : v === '__excl' ? { exclude:true } : { name:v }), at: new Date().toISOString() };
+  sfNames = { ...sfNames, map };
+  if(!await _sfnmPersist(prev)) return;
+  _sfnmEditKey = null;
+  _renderSfNamesPreview();
+  if(currentTab === 'semaforo') renderSemaforoTab();
+  toast('Equivalencia guardada');
+}
+async function _sfnmSetApproved(on) {
+  if(on && !await _confirm('El Semáforo y el PDF que reciben los resellers van a pasar a usar los nombres de la lista de precios. ¿Aprobar?')) return;
+  const prev = JSON.parse(JSON.stringify(sfNames));
+  sfNames = { ...sfNames, approved: !!on, approvedAt: on ? new Date().toISOString() : null };
+  if(!await _sfnmPersist(prev)) return;
+  _renderSfNamesPreview();
+  if(currentTab === 'semaforo') renderSemaforoTab();
+  toast(on ? 'Semáforo con nombres de lista aprobado' : 'El Semáforo volvió a los nombres anteriores');
 }
 
 // ─── SEMÁFORO: VISTA "SOLO TRÁNSITO" ─────────────────────────────────────────
@@ -8282,7 +8657,12 @@ function renderSemaforoTab() {
     <button class="btn" onclick="exportSemaforoPDF()" style="color:#FD7E14;border-color:rgba(208,135,112,0.4)">
       <i class="ti ti-file-type-pdf" style="font-size:14px"></i> Exportar PDF
     </button>
+    ${_currentRole === 'admin' ? `<button class="btn" onclick="openSfNamesPreview()" title="Nombres de la lista de precios en el Semáforo"><i class="ti ti-tags" style="font-size:14px"></i> Nombres de lista${sfNames.approved ? '' : ' (vista previa)'}</button>` : ''}
+    ${_currentRole === 'admin' && !sfNames.approved ? `<button class="btn${_sfNmLocalPreview ? ' btn-primary' : ''}" onclick="_sfNmLocalPreview=!_sfNmLocalPreview;renderSemaforoTab()" title="Solo para vos y solo en esta sesión: no cambia lo que ven los demás">${_sfNmLocalPreview ? 'Ver Semáforo actual' : 'Ver Semáforo nuevo'}</button>` : ''}
   </div>
+</div>
+${_currentRole === 'admin' && _sfNmLocalPreview && !sfNames.approved ? `<div style="margin:-8px 0 12px;padding:8px 12px;border-radius:8px;background:rgba(253,126,20,0.12);color:#e8590c;font-size:12px;font-weight:600"><i class="ti ti-eye"></i> Vista previa: así va a quedar con los nombres de la lista. Solo lo ves vos (los demás siguen con el Semáforo actual). El PDF que exportes ahora sale con los nombres nuevos.</div>` : ''}
+<div style="display:none">
 </div>
 ${_buildTransitAlertPanel(transitData)}
 <div class="sf-wrap">
@@ -8317,7 +8697,8 @@ ${_buildTransitAlertPanel(transitData)}
     const transitOnlyLabel = p.isTransitOnly
       ? `<span style="font-style:italic;color:var(--text2)">${esc(p.displayName)}</span> <span style="font-size:9px;background:rgba(255,243,205,0.8);color:#8a5c00;border:0.5px solid #e0c060;border-radius:3px;padding:1px 5px;vertical-align:middle">EN TRÁNSITO</span>`
       : esc(p.displayName);
-    html += `<td class="sf-td-model">${transitOnlyLabel}</td>`;
+    const discBadge = p.disc ? ` <span style="font-size:9px;background:rgba(150,150,150,0.15);color:var(--text3);border:0.5px solid var(--border2);border-radius:3px;padding:1px 5px;vertical-align:middle">DISCONTINUADO</span>` : '';
+    html += `<td class="sf-td-model">${transitOnlyLabel}${discBadge}</td>`;
     sfKeys.forEach(dk => {
       const qty = p.distQty[dk] || 0;
       const sc = stockClass(qty);
@@ -8623,12 +9004,12 @@ function _pdfMsiLogoGold() {
   });
 }
 
-async function exportSemaforoPDF() {
+async function exportSemaforoPDF(opts) {
   if(!await _libsOk()) return;
   if(!window.jspdf) { _alert('La librería de PDF no cargó. Revisá la conexión a internet.', {type:'error'}); return; }
   const { jsPDF } = window.jspdf;
 
-  let { products, transitData } = buildSemaforoData();
+  let { products, transitData } = buildSemaforoData(opts);
   // Distribuidor: solo su columna y los modelos que tiene en stock o tránsito (igual que en pantalla)
   const pdfKeys = _currentRole === 'distributor' ? (_currentDistributor ? [_currentDistributor] : []) : SF_DIST_KEYS;
   if(_currentRole === 'distributor') products = products.filter(p => pdfKeys.some(dk => p.distQty[dk] || transitData[dk]?.keys.has(p.normModel)));
@@ -8726,7 +9107,7 @@ async function exportSemaforoPDF() {
       body.push([{ content: SF_CAT_LABELS[p.category] || p.category.toUpperCase(), colSpan: 1 + pdfKeys.length*2, styles:{fillColor:GOLD_LIGHT,textColor:BLACK,fontStyle:'bold',fontSize:8,cellPadding:{top:4,bottom:4,left:8,right:4}} }]);
     }
     // Clean display name + truncate to keep on one line
-    const modelName = p.displayName.slice(0, 55);
+    const modelName = (p.displayName.slice(0, p.disc ? 40 : 55)) + (p.disc ? '  · DISCONTINUADO' : '');
     const row = [{ content: modelName, styles: { halign:'left', overflow:'ellipsize' } }];
     pdfKeys.forEach(dk => {
       const qty = p.distQty[dk] || 0;
@@ -8775,7 +9156,8 @@ async function exportSemaforoPDF() {
     doc.text(`Página ${i} de ${nPages}`, pageW - 18, fy + 16, {align:'right'});
   }
 
-  doc.save(weekNo ? `Semáforo MSI Week ${weekNo}.pdf` : `Semáforo MSI ${today.toISOString().slice(0,10)}.pdf`);
+  const suffix = opts && opts.preview ? ' (prueba)' : '';
+  doc.save(weekNo ? `Semáforo MSI Week ${weekNo}${suffix}.pdf` : `Semáforo MSI ${today.toISOString().slice(0,10)}${suffix}.pdf`);
 }
 
 // ─── SUGERIDOS DE COMPRA ───────────────────────────────────────────────────
