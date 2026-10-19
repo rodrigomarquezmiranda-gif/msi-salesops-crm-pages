@@ -1889,7 +1889,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '16.10.26.2';
+const APP_VERSION = '19.10.26.1';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -15080,23 +15080,60 @@ function classifyResellerLine(description) {
   return null;
 }
 
+// Índice de ventas por cliente (CUIT + nombre normalizados) para un año: se arma una sola vez
+// recorriendo todas las filas, y cada reseller suma solo los clientes que matchean. Antes cada
+// reseller recorría todas las filas y normalizaba nombres fila por fila → delay al abrir la pestaña.
+// Se rearma solo si cambian los reportes (firma por id / período / cantidad de filas).
+let _rsSalesIdxCache = { ref: null, sig: '', byYear: {} };
+function _rsSalesIndex(yearFilter) {
+  const reports = db.weeklyReports || [];
+  const sig = reports.length + '#' + reports.map(s => (s.id||'') + '|' + (s.reportType||'') + '|' + (s.periodEnd||'') + '|' + ((s.rows||[]).length)).join(',');
+  if(_rsSalesIdxCache.ref !== reports || _rsSalesIdxCache.sig !== sig) _rsSalesIdxCache = { ref: reports, sig, byYear: {} };
+  const yk = yearFilter ? String(yearFilter) : '*';
+  if(_rsSalesIdxCache.byYear[yk]) return _rsSalesIdxCache.byYear[yk];
+
+  const groups = new Map();   // 'cuit|nombre' → { nc, nn, data: { lineKey: { 'YYYY-MM': qty } } }
+  const lineCache = new Map(); // descripción → lineKey (o null)
+  reports.forEach(snap => {
+    if(snap.reportType !== 'sales') return;
+    const snapYear = (snap.periodEnd||'').slice(0,4);
+    if(yearFilter && snapYear !== String(yearFilter)) return;
+    const monthKey = (snap.periodEnd||'').slice(0,7); // 'YYYY-MM'
+    if(!monthKey || monthKey.length < 7) return;
+    (snap.rows||[]).forEach(r => {
+      const desc = r.description||'';
+      let lineKey = lineCache.get(desc);
+      if(lineKey === undefined) { lineKey = classifyResellerLine(desc); lineCache.set(desc, lineKey); }
+      if(!lineKey) return;
+      const nc = r.cuit ? (normCuit(r.cuit) || '') : '';
+      const nn = normResellerName(r.client||'');
+      if(!nc && !nn) return;
+      const gk = nc + '|' + nn;
+      let g = groups.get(gk);
+      if(!g) { g = { nc, nn, data: {} }; groups.set(gk, g); }
+      const ld = g.data[lineKey] || (g.data[lineKey] = {});
+      ld[monthKey] = (ld[monthKey]||0) + (r.qty||0);
+    });
+  });
+  const idx = Array.from(groups.values());
+  _rsSalesIdxCache.byYear[yk] = idx;
+  return idx;
+}
+
 function getResellerMonthlyData(reseller, yearFilter) {
   // Returns { lineKey: { 'YYYY-MM': qty } }
   const data = {};
   RESELLER_LINE_KEYS.forEach(k => data[k] = {});
 
-  const allSales = db.weeklyReports.filter(s => s.reportType==='sales');
-  allSales.forEach(snap => {
-    const snapYear = (snap.periodEnd||'').slice(0,4);
-    if(yearFilter && snapYear !== String(yearFilter)) return;
-    const monthKey = (snap.periodEnd||'').slice(0,7); // 'YYYY-MM'
-    if(!monthKey || monthKey.length < 7) return;
-    snap.rows.forEach(r => {
-      if(!matchesReseller(r.client||'', r.cuit||'', reseller)) return;
-      const lineKey = classifyResellerLine(r.description||'');
-      if(!lineKey) return;
-      data[lineKey][monthKey] = (data[lineKey][monthKey]||0) + (r.qty||0);
-    });
+  // Mismo criterio que matchesReseller(): coincide por cualquiera de sus CUITs o por nombre / alias
+  const cuits = new Set(getResellerCuits(reseller).map(c => normCuit(c)).filter(Boolean));
+  const names = new Set([reseller.name, ...(reseller.aliases||[])].map(normResellerName).filter(Boolean));
+  _rsSalesIndex(yearFilter).forEach(g => {
+    if(!((g.nc && cuits.has(g.nc)) || (g.nn && names.has(g.nn)))) return;
+    for(const lineKey in g.data) {
+      const src = g.data[lineKey], dst = data[lineKey];
+      for(const m in src) dst[m] = (dst[m]||0) + src[m];
+    }
   });
 
   // Merge manual data
