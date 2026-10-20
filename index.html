@@ -1889,7 +1889,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '19.10.26.7';
+const APP_VERSION = '20.10.26.3';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -4515,7 +4515,12 @@ function parseInvoiceLineItems(lines) {
     }
   }
   if(headerIdx === -1) return [];
-  const footerIdx = lines.findIndex((l,i) => i > headerIdx && /Total\s+Gross\s+Weight|^Remark:|^Bank\s+Inform/i.test(l));
+  // Facturas de varias páginas: cada página repite el membrete (con "Remark:") y el encabezado de la
+  // tabla. "Remark:" solo cierra la tabla después del último encabezado; los cortes de página se saltean.
+  const isTableHeader = l => /Item\s+Code/i.test(l) && /Marketing\s+Name/i.test(l);
+  let lastHeaderIdx = headerIdx;
+  lines.forEach((l, i) => { if(i > headerIdx && isTableHeader(l)) lastHeaderIdx = i; });
+  const footerIdx = lines.findIndex((l,i) => i > headerIdx && (/Total\s+Gross\s+Weight|^Bank\s+Inform/i.test(l) || (i > lastHeaderIdx && /^Remark:/i.test(l))));
   const end = footerIdx > headerIdx ? footerIdx : lines.length;
   const items = [];
   let pending = null;
@@ -4523,6 +4528,14 @@ function parseInvoiceLineItems(lines) {
   for(let i = headerIdx+1; i < end; i++) {
     const l = lines[i].trim();
     if(!l) continue;
+    if(/^Page\s*:\s*\d+\s*\/\s*\d+/i.test(l)) {
+      // Fin de página: cerrar el ítem en curso y seguir después del encabezado de la página siguiente
+      if(pending) { items.push(pending); pending = null; }
+      const next = lines.findIndex((x, j) => j > i && j < end && isTableHeader(x));
+      if(next === -1) break;
+      i = next;
+      continue;
+    }
     const toks = l.split(/\s+/);
     let firstToken = toks[0], codePos = 0, categoryLabel = '';
     // Some invoice formats (e.g. A2 MGT LLC) have a Category column (VGA, MB, Monitor…)
@@ -4574,6 +4587,13 @@ function parseInvoiceLineItems(lines) {
         afterCode = afterCode.replace(/\s+MS-[A-Z0-9]+[, ].*/i, '').trim();
         afterCode = afterCode.replace(/\s+ID\d+\/\S+.*/i, '').trim();
         afterCode = afterCode.replace(/\s+MSI\s+COMPUTER\b.*/i, '').trim();
+        // Sin COO en la línea (pasó al renglón siguiente) pero con "QTY 0% PRECIO IMPORTE" al final
+        const qtyPrice = afterCode.match(/^(.*?)\s+([\d,]+)\s+\d+%\s+([\d,]+\.\d{2})\s+[\d,]+\.\d{2}\s*$/);
+        if(qtyPrice) {
+          afterCode = qtyPrice[1];
+          qtyShipped = parseInt(qtyPrice[2].replace(/,/g,''));
+          unitPrice = parseFloat(qtyPrice[3].replace(/,/g,''));
+        }
         const trailingQty = afterCode.match(/^(.*?)\s+([\d,]{1,7})\s*$/);
         if(trailingQty && !/[A-Z]/.test(trailingQty[2])) {
           // Last token is a pure integer (comma-thousands allowed) — treat as qty
@@ -7881,7 +7901,8 @@ function _sfMatchDist(clientStr) {
 // Es el único Semáforo desde 19/10/2026 (el armado viejo por clave de modelo queda solo como comparación
 // en la pantalla de nombres: buildSemaforoData({ plNames:false })).
 let sfNames = { map:{} };
-const _SF_NM_EXCLUDE = [/\bNOTEBOOK\b/i, /\bA68HM/i, /\bGT\s*730K?\b/i, /\bRX\s*6400\b/i, /\bH110M\b/i, /\bH310M\b/i, /\bH510M\b/i];
+const _SF_NM_EXCLUDE = [/\bNOTEBOOK\b/i, /\bA68HM/i, /\bGT\s*730K?\b/i, /\bRX\s*6400\b/i, /\bH110M\b/i, /\bH310M\b/i, /\bH510M\b/i,
+  /\bK33-\d{5,}/i, /\bPOWER\s*CORD\b/i]; // cables de alimentación que vienen en las invoices (K33-3001295-I45 "EXT POWER CORD")
 const _SF_NM_DISCONT = /\b(?:A320M|B450M)\b/i;
 const _SF_NM_CD      = /CAJA\s+DA[ÑN]ADA|\(CD\)|^CAJA\s/i;
 // Reglas fijas acordadas con Rodrigo (19/10/2026): [prueba, nombre final, ¿está en la lista?]
@@ -8392,7 +8413,10 @@ function setSemaforoTransitDist(dk) { _sfTransitDist = dk; renderSemaforoTab(); 
 // otros distys y hay disponibles en la lista de precios. Primero los que venden más distys.
 function _buildTransitOffer(dk, transitModels) {
   const { products } = buildSugeridosData();
-  const inTransit = key => !!transitModels.get(key)?.byDist[dk];
+  // transitModels va por nombre de lista; los sugeridos por clave de modelo → se cruza con las claves de cada fila
+  const transitKeys = new Set();
+  transitModels.forEach(m => { if(m.byDist[dk]) m.lks.forEach(k => transitKeys.add(k)); });
+  const inTransit = key => transitKeys.has(key);
   const plByKey = new Map();
   (priceList?.products || []).forEach(p => {
     if(p.isSubSection) return;
@@ -8434,10 +8458,10 @@ function _piTransitQtyItems(pi) {
   const name = li => _piItemName(li);
   const inv = (pi.invoiceItems || []).filter(li => name(li) && (li.qtyShipped || 0) > 0);
   const price = li => li.unitPrice ? Math.abs(Number(li.unitPrice)) || null : null;
-  if(inv.length) return inv.map(li => ({ desc: name(li), qty: li.qtyShipped, price: price(li), category: li.category || '' }));
+  if(inv.length) return inv.map(li => ({ desc: name(li), code: li.itemCode || '', qty: li.qtyShipped, price: price(li), category: li.category || '' }));
   const lines = (pi.lineItems || []).filter(li => name(li));
-  if(lines.length) return lines.map(li => ({ desc: name(li), qty: li.ordered || li.qtyShipped || 0, price: price(li), category: li.category || '' }));
-  return (pi.invoiceItems || []).filter(li => name(li)).map(li => ({ desc: name(li), qty: 0, price: price(li), category: li.category || '' }));
+  if(lines.length) return lines.map(li => ({ desc: name(li), code: li.itemCode || '', qty: li.ordered || li.qtyShipped || 0, price: price(li), category: li.category || '' }));
+  return (pi.invoiceItems || []).filter(li => name(li)).map(li => ({ desc: name(li), code: li.itemCode || '', qty: 0, price: price(li), category: li.category || '' }));
 }
 
 const SF_TRANSIT_CSS = `<style>
@@ -8461,7 +8485,7 @@ function _renderSemaforoTransitView(wrap) {
   const fmtD = d => d ? d.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit' }) : '—';
   const SHIP = { 'miami-aereo':'✈️ Miami Aéreo', 'miami-maritimo':'🚢 Miami Marítimo', 'china-maritimo':'🚢 China Marítimo' };
 
-  // models: key → { desc, category, byDist: { dk: { qty, unknown, etas:[Date], pis:[name] } } }
+  // models: clave del Semáforo (nombre de lista) → { name, category, lks:Set(clave de modelo), byDist: { dk: { qty, unknown, etas:[Date], pis:[name] } } }
   const models = new Map();
   const distTot = {}; keys.forEach(dk => distTot[dk] = { units: 0, pis: 0, nextEta: null });
   const noDetail = [];
@@ -8473,28 +8497,31 @@ function _renderSemaforoTransitView(wrap) {
     const items = _piTransitQtyItems(pi);
     if(!items.length) { noDetail.push({ pi, dk, eta }); return; }
     items.forEach(it => {
-      const k = extractMSIModelKey(it.desc) || normDesc(it.desc);
-      if(!k) return;
+      // Mismo nombre y agrupación que el Semáforo (nombres de la lista de precios)
+      const rs = _sfResolveName(it.desc, it.code, 'T|' + dk);
+      if(rs.exclude || !rs.key) return;
+      const k = rs.key;
+      const lk = extractMSIModelKey(it.desc) || normDesc(it.desc);
       if(!models.has(k)) {
-        let cat = classifyProductCategory(it.desc);
+        let cat = rs.cat || classifyProductCategory(it.desc);
         if(cat === 'other' && it.category) cat = classifyProductCategory(it.category);
-        models.set(k, { desc: it.desc, category: cat, byDist: {} });
+        models.set(k, { name: rs.name, category: cat, lks: new Set(), byDist: {} });
       }
       const m = models.get(k);
-      if(it.desc.length < m.desc.length) m.desc = it.desc;
+      if(lk) m.lks.add(lk);
       const c = m.byDist[dk] || (m.byDist[dk] = { qty: 0, unknown: false, etas: [], pis: [] });
       c.qty += it.qty || 0;
       if(!it.qty) c.unknown = true;
       if(eta) c.etas.push(eta);
       if(!c.pis.includes(pi.name)) c.pis.push(pi.name);
       distTot[dk].units += it.qty || 0;
-      lines.push({ key: k, qty: it.qty || 0, price: it.price, pi, eta });
+      lines.push({ key: k, lk, qty: it.qty || 0, price: it.price, pi, eta });
     });
   });
 
   const catOrder = [...SF_CAT_ORDER, 'other'];
   const list = [...models.entries()]
-    .map(([key, m]) => ({ ...m, key, name: semaforoDisplayName(m.desc, m.category) || m.desc, total: keys.reduce((s, dk) => s + (m.byDist[dk]?.qty || 0), 0) }))
+    .map(([key, m]) => ({ ...m, key, total: keys.reduce((s, dk) => s + (m.byDist[dk]?.qty || 0), 0) }))
     .sort((a, b) => (catOrder.indexOf(a.category) - catOrder.indexOf(b.category)) || (b.total - a.total) || a.name.localeCompare(b.name));
   const grandTotal = keys.reduce((s, dk) => s + distTot[dk].units, 0);
 
@@ -8577,7 +8604,7 @@ function _renderSemaforoTransitView(wrap) {
         <td style="text-align:center">${l.price ? 'USD ' + l.price.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</td>
         <td style="text-align:center">${esc(l.pi.name || '—')}${l.pi.invoiceNo ? `<div style="font-size:10px;color:var(--text3)">Inv #${esc(l.pi.invoiceNo)}</div>` : ''}</td>
         <td style="text-align:center">${fmtD(l.eta)}${l.pi.shipmentType ? `<div style="font-size:10px;color:var(--text3)">${SHIP[l.pi.shipmentType] || esc(l.pi.shipmentType)}</div>` : ''}</td>
-        <td style="text-align:center">${availCell(l.key)}</td>
+        <td style="text-align:center">${availCell(l.lk)}</td>
       </tr>`;
       alt1 = !alt1;
     });
