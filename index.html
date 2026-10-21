@@ -1889,7 +1889,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '20.10.26.3';
+const APP_VERSION = '21.10.26.1';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -10094,6 +10094,8 @@ function _pbmLoad() {
       // Re-render solo si el tab PBM está activo
       const pane = document.getElementById('tab-pbm');
       if (pane && pane.classList.contains('active')) renderPBMTab();
+      // Las razones sociales de PBM también se usan para la importación directa de los resellers
+      ['t1','t2','t3'].forEach(t => { const p = document.getElementById('tab-resellers-' + t); if (p && p.classList.contains('active')) renderResellerTab(t); });
     } catch(e) { console.warn('PBM load error:', e); }
   });
   // Migrar datos viejos de localStorage si existen
@@ -15658,6 +15660,94 @@ function _rsSalesIndex(yearFilter) {
   return idx;
 }
 
+// ─── IMPORTACIÓN DIRECTA DE RESELLERS ────────────────────────────────────────
+// Algunos resellers (Polytech, Gaming City, Venex…) traen MSI con su propia razón social: esas
+// unidades no pasan por ningún disty, así que no están en los reportes de venta. Se toman de las
+// operaciones de Importaciones (db.imports[].transactions, marca MSI, con mes) y se cruzan por
+// nombre del importador contra: nombre + alias del reseller y las razones sociales de PBM que
+// tengan alguno de sus CUITs. Coincidencia exacta, solo sin la forma societaria (S.A., SRL…).
+let _rsIncludeImports = true;
+try { _rsIncludeImports = localStorage.getItem('rs_include_imports') !== '0'; } catch(e) {}
+function _rsSetIncludeImports(v, tier) {
+  _rsIncludeImports = !!v;
+  try { localStorage.setItem('rs_include_imports', v ? '1' : '0'); } catch(e) {}
+  renderResellerTab(tier);
+}
+const _RS_LEGAL_SUFFIX = /\s+(SOCIEDAD ANONIMA( UNIPERSONAL)?|SOCIEDAD DE RESPONSABILIDAD LIMITADA|SOCIEDAD POR ACCIONES SIMPLIFICADA|S ?R ?L|S ?A ?S|S ?A ?U|S ?A ?C ?I ?F ?I ?A|S ?A ?I ?C|S ?C ?A|S ?A|S ?H|LTDA|INC|LLC)$/;
+function _rsNormCompany(s) {
+  let n = normResellerName(s);
+  for(let i = 0; i < 3; i++) { const t = n.replace(_RS_LEGAL_SUFFIX, ''); if(t === n || !t) break; n = t; }
+  return n;
+}
+// La categoría del archivo de Importaciones manda (un archivo de VGA trae solo VGA); si no
+// alcanza, se clasifica el modelo como cualquier renglón de disty.
+const _RS_IMP_CAT_LINE = [
+  [/VIDEO|VGA|GPU|GRAFIC/, 'vga'], [/MOTHER|MADRE|\bMB\b/, 'mb'], [/FUENTE|PSU|POWER/, 'psu'],
+  [/MONITOR/, 'monitor'], [/GABINETE|CHASSIS|CASE/, 'chassis'], [/COOL|REFRIG|LIQUID|AIO/, 'lc'],
+  [/SSD|DISCO|ALMACEN/, 'ssd'], [/MINI ?PC|CUBI|PRO DT/, 'prodt'], [/\bARMS?\b|SOPORTE/, 'arms'],
+];
+function _rsImportLineFor(category, model) {
+  const c = normResellerName(category);
+  for(const [re, key] of _RS_IMP_CAT_LINE) if(re.test(c)) return key;
+  return classifyResellerLine(model || '');
+}
+// Índice importador → { line: { 'YYYY-MM': qty } }, solo MSI y solo operaciones con mes.
+let _rsImpIdxCache = { ref: null, sig: '', byYear: {} };
+function _rsImportIndex(yearFilter) {
+  const batches = db.imports || [];
+  const sig = batches.map(b => (b.id||'') + '|' + (b.uploadedAt||'') + '|' + ((b.transactions||[]).length)).join(',');
+  if(_rsImpIdxCache.ref !== batches || _rsImpIdxCache.sig !== sig) _rsImpIdxCache = { ref: batches, sig, byYear: {} };
+  const yk = yearFilter ? String(yearFilter) : '*';
+  if(_rsImpIdxCache.byYear[yk]) return _rsImpIdxCache.byYear[yk];
+  const idx = new Map(); // nombre normalizado → { names:Set, data:{}, unclassified:{} }
+  batches.forEach(b => {
+    (b.transactions||[]).forEach(t => {
+      if(normDesc(normBrandName(t.brand||'')) !== 'MSI') return;
+      if(!t.month || !/^\d{4}-\d{2}$/.test(t.month)) return;
+      if(yearFilter && t.month.slice(0,4) !== String(yearFilter)) return;
+      const key = _rsNormCompany(t.importer);
+      if(!key) return;
+      let g = idx.get(key);
+      if(!g) { g = { names: new Set(), data: {}, unclassified: {} }; idx.set(key, g); }
+      g.names.add(String(t.importer).trim().toUpperCase());
+      const qty = Math.abs(t.qty||0);
+      const lineKey = _rsImportLineFor(b.category, t.model);
+      const dst = lineKey ? (g.data[lineKey] || (g.data[lineKey] = {})) : g.unclassified;
+      dst[t.month] = (dst[t.month]||0) + qty;
+    });
+  });
+  _rsImpIdxCache.byYear[yk] = idx;
+  return idx;
+}
+// Razones sociales con las que se busca al reseller en Importaciones
+function _rsImportNames(reseller) {
+  const names = new Set([reseller.name, ...(reseller.aliases||[])].map(_rsNormCompany).filter(Boolean));
+  const cuits = new Set(getResellerCuits(reseller).map(c => normCuit(c)).filter(Boolean));
+  if(cuits.size && typeof _pbmResellers !== 'undefined') {
+    _pbmResellers.forEach(p => { if(cuits.has(normCuit(p.cuit))) { const n = _rsNormCompany(p.name); if(n) names.add(n); } });
+  }
+  return names;
+}
+function getResellerImportData(reseller, yearFilter) {
+  // Returns { data: { lineKey: { 'YYYY-MM': qty } }, unclassified: { 'YYYY-MM': qty }, importers: [nombres tal cual], total }
+  const out = { data: {}, unclassified: {}, importers: [], total: 0 };
+  const idx = _rsImportIndex(yearFilter);
+  if(!idx.size) return out;
+  const importers = new Set();
+  _rsImportNames(reseller).forEach(n => {
+    const g = idx.get(n);
+    if(!g) return;
+    g.names.forEach(x => importers.add(x));
+    for(const lineKey in g.data) {
+      const dst = out.data[lineKey] || (out.data[lineKey] = {});
+      for(const m in g.data[lineKey]) { dst[m] = (dst[m]||0) + g.data[lineKey][m]; out.total += g.data[lineKey][m]; }
+    }
+    for(const m in g.unclassified) out.unclassified[m] = (out.unclassified[m]||0) + g.unclassified[m];
+  });
+  out.importers = Array.from(importers);
+  return out;
+}
+
 function getResellerMonthlyData(reseller, yearFilter) {
   // Returns { lineKey: { 'YYYY-MM': qty } }
   const data = {};
@@ -15673,6 +15763,18 @@ function getResellerMonthlyData(reseller, yearFilter) {
       for(const m in src) dst[m] = (dst[m]||0) + src[m];
     }
   });
+
+  // Importación directa (ver getResellerImportData): se suma al total y queda aparte en data._imp
+  // (no enumerable, así los recorridos por línea no la ven) para mostrar el desglose.
+  const imp = getResellerImportData(reseller, yearFilter);
+  Object.defineProperty(data, '_imp', { value: imp, enumerable: false });
+  if(_rsIncludeImports) {
+    for(const lineKey in imp.data) {
+      const src = imp.data[lineKey], dst = data[lineKey];
+      if(!dst) continue;
+      for(const m in src) dst[m] = (dst[m]||0) + src[m];
+    }
+  }
 
   // Merge manual data
   const prefix = reseller.id + ':';
@@ -15702,6 +15804,9 @@ function getResellerYears() {
       if(/^\d{4}-\d{2}$/.test(period)) years.add(period.slice(0,4));
       if(/^\d{4}$/.test(period)) years.add(period);
     }
+  });
+  _rsImportIndex(null).forEach(g => {
+    [...Object.values(g.data), g.unclassified].forEach(byMonth => Object.keys(byMonth).forEach(m => years.add(m.slice(0,4))));
   });
   const now = new Date().getFullYear();
   years.add(String(now));
@@ -15889,6 +15994,9 @@ function renderResellerTab(tier) {
         <select style="padding:6px 10px;border:0.5px solid var(--border2);border-radius:8px;background:var(--bg2);color:var(--text);font-size:13px" onchange="_resellerYear['${tier}']=this.value;renderResellerTab('${tier}')">
           ${years.map(y => `<option value="${y}" ${y===currentYear?'selected':''}>${y}</option>`).join('')}
         </select>
+        <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text2);cursor:pointer" title="Suma lo que el reseller importa con su razón social (Importaciones, marca MSI)">
+          <input type="checkbox" ${_rsIncludeImports?'checked':''} onchange="_rsSetIncludeImports(this.checked,'${tier}')"> <i class="ti ti-ship" style="font-size:13px;color:var(--blue-text)"></i> Incluir importación directa
+        </label>
         <button class="btn${evolOpen?' btn-primary':''}" onclick="_rsToggleEvol('${tier}')" style="${evolOpen?'':'color:'+tierColor+';border-color:'+tierColor+'40'}">
           <i class="ti ti-chart-line" style="font-size:13px"></i> Evolución
         </button>
@@ -15936,14 +16044,27 @@ function buildResellerBlock(reseller, tier, idx, data, year, months, quarters, a
       const mo = parseInt(m.slice(5)) - 1;
       thMonths += `<th>${MONTHS_ES_SHORT[mo]}</th>`;
     });
-    thMonths += `<th class="th-q">${q}</th><th class="th-target">Target ${q} <i class="ti ti-pencil" style="font-size:9px;opacity:0.6"></i></th>`;
+    thMonths += `<th class="th-q">${q}</th>`;
   });
   // Total anual: suma de todos los Q activos — se arma solo, sin tocar nada acá cuando aparezca Q4.
   thMonths += `<th class="th-q" style="background:var(--brand-bg,rgba(255,102,0,0.08))">Total Anual</th>`;
 
+  const imp = data._imp || { data: {}, unclassified: {}, importers: [], total: 0 };
+  // Celda con unidades importadas: marca + desglose al pasar el mouse
+  const impCell = (val, impQty) => {
+    if(!impQty) return { cls: '', title: '', mark: '' };
+    const fromDist = _rsIncludeImports ? val - impQty : val;
+    return {
+      cls: ' imp-val',
+      title: `${fromDist} vía distys / manual + ${impQty} importadas directo`,
+      mark: _rsIncludeImports ? `<i class="ti ti-ship" style="font-size:9px;margin-left:3px;color:var(--blue-text)"></i>` : `<span style="font-size:10px;color:var(--blue-text);margin-left:3px">+${impQty}</span>`
+    };
+  };
+
   let bodyRows = '';
   RESELLER_LINES.forEach(line => {
     const ldata = data[line.key] || {};
+    const limp = imp.data[line.key] || {};
 
     let rowCells = '';
     let qTotals = {};
@@ -15955,15 +16076,13 @@ function buildResellerBlock(reseller, tier, idx, data, year, months, quarters, a
         const isManual = !!(db.resellerManual && db.resellerManual[reseller.id+':'+line.key+':'+m]);
         qTotals[q] += val;
         totalByLine[line.key] = (totalByLine[line.key]||0) + val;
-        const cls = val === 0 ? 'zero-val' : (isManual ? 'manual-val' : '');
+        const ic = impCell(val, limp[m] || 0);
+        const cls = (val === 0 ? 'zero-val' : (isManual ? 'manual-val' : '')) + ic.cls;
         const displayVal = val === 0 ? '—' : val;
-        rowCells += `<td class="${cls}" title="${isManual?'Dato manual':'Dato de reportes'}" onclick="editResellerManual('${reseller.id}','${line.key}','${m}','${tier}')" style="cursor:pointer">${displayVal}</td>`;
+        rowCells += `<td class="${cls}" title="${ic.title || (isManual?'Dato manual':'Dato de reportes')}" onclick="editResellerManual('${reseller.id}','${line.key}','${m}','${tier}')" style="cursor:pointer">${displayVal}${ic.mark}</td>`;
       });
       const qtot = qTotals[q];
-      const targetKey = reseller.id + ':' + line.key + ':' + year + q;
-      const target = db.resellerTargets[targetKey] ?? '';
       rowCells += `<td class="q-col">${qtot || '—'}</td>`;
-      rowCells += `<td class="target-col"><span id="rtgt_${reseller.id}_${line.key}_${year}${q}">${target !== '' ? target : '<span style="color:var(--text3)">—</span>'}</span><i class="ti ti-pencil edit-pencil" onclick="editResellerTarget('${reseller.id}','${line.key}','${year}${q}','${tier}')"></i></td>`;
     });
     rowCells += `<td class="q-col" style="font-weight:700;background:var(--brand-bg,rgba(255,102,0,0.08))">${totalByLine[line.key] || '—'}</td>`;
 
@@ -15979,19 +16098,27 @@ function buildResellerBlock(reseller, tier, idx, data, year, months, quarters, a
       let mSum = 0;
       RESELLER_LINE_KEYS.forEach(k => mSum += (data[k][m]||0));
       const isManual = RESELLER_LINE_KEYS.some(k => !!(db.resellerManual && db.resellerManual[reseller.id+':'+k+':'+m]));
-      const cls = mSum === 0 ? 'zero-val' : (isManual ? 'manual-val' : '');
-      ttlCells += `<td class="${cls}">${mSum || '—'}</td>`;
+      let mImp = 0;
+      RESELLER_LINE_KEYS.forEach(k => mImp += ((imp.data[k]||{})[m]||0));
+      const ic = impCell(mSum, mImp);
+      const cls = (mSum === 0 ? 'zero-val' : (isManual ? 'manual-val' : '')) + ic.cls;
+      ttlCells += `<td class="${cls}"${ic.title ? ` title="${ic.title}"` : ''}>${mSum || '—'}${ic.mark}</td>`;
       qSum += mSum;
     });
-    const targetKey = reseller.id + ':ttl:' + year + q;
-    const target = db.resellerTargets[targetKey] ?? '';
     ttlCells += `<td class="q-col">${qSum || '—'}</td>`;
-    ttlCells += `<td class="target-col"><span id="rtgt_${reseller.id}_ttl_${year}${q}">${target !== '' ? target : '<span style="color:var(--text3)">—</span>'}</span><i class="ti ti-pencil edit-pencil" onclick="editResellerTarget('${reseller.id}','ttl','${year}${q}','${tier}')"></i></td>`;
     ttlAnnualTotal += qSum;
   });
   ttlCells += `<td class="q-col" style="font-weight:700;background:var(--brand-bg,rgba(255,102,0,0.08))">${ttlAnnualTotal || '—'}</td>`;
 
   const matchInfo = _getResellerMatchInfo(reseller);
+  const impUnclass = Object.values(imp.unclassified).reduce((a, b) => a + b, 0);
+  const impInfo = imp.importers.length
+    ? `<div style="font-size:11.5px;color:var(--blue-text);padding:6px 2px 2px;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center">
+        <span><i class="ti ti-ship" style="font-size:12px;margin-right:3px"></i>Importa directo como <b>${imp.importers.map(esc).join(' / ')}</b></span>
+        <span style="color:var(--text2)">${imp.total.toLocaleString('es-AR')} u. MSI en ${esc(year)}${_rsIncludeImports ? ' (incluidas en la tabla)' : ' (no incluidas)'}</span>
+        ${impUnclass ? `<span style="color:var(--text3)" title="Operaciones MSI de este importador que no se pudieron asignar a una línea">+ ${impUnclass} sin línea</span>` : ''}
+      </div>`
+    : '';
 
   return `<div class="reseller-block" draggable="true"
       ondragstart="_rsDragStart(event,'${tier}',${idx})"
@@ -16002,10 +16129,11 @@ function buildResellerBlock(reseller, tier, idx, data, year, months, quarters, a
       <span style="cursor:grab;color:var(--text3);font-size:16px;padding:0 6px 0 0;flex-shrink:0;user-select:none" title="Arrastrar para reordenar">⠿</span>
       <span style="font-weight:700;font-size:14px;color:var(--text)">${esc(reseller.name)}</span>
       ${getResellerCuits(reseller).length > 0 ? `<span style="font-size:11px;color:var(--text3)">CUIT ${getResellerCuits(reseller).map(esc).join(' · ')}</span>` : ''}
-      ${matchInfo ? `<span style="font-size:11px;color:var(--text3)">→ ${esc(matchInfo)}</span>` : '<span style="font-size:11px;color:var(--red-text)"><i class="ti ti-alert-triangle" style="font-size:11px"></i> Sin coincidencias en reportes — configurar CUIT</span>'}
+      ${matchInfo ? `<span style="font-size:11px;color:var(--text3)">→ ${esc(matchInfo)}</span>` : (imp.importers.length ? '<span style="font-size:11px;color:var(--text3)">Sin compras a distys en los reportes</span>' : '<span style="font-size:11px;color:var(--red-text)"><i class="ti ti-alert-triangle" style="font-size:11px"></i> Sin coincidencias en reportes — configurar CUIT</span>')}
       <button class="btn" style="margin-left:auto;font-size:11px;padding:3px 8px" onclick="editResellerConfig('${reseller.id}','${tier}')"><i class="ti ti-settings" style="font-size:12px"></i> Configurar</button>
       <button class="btn" style="font-size:11px;padding:3px 8px;color:var(--red-text)" onclick="removeReseller('${reseller.id}','${tier}')"><i class="ti ti-trash" style="font-size:12px"></i></button>
     </div>
+    ${impInfo}
     <div class="reseller-table-wrap">
       <table class="reseller-table">
         <thead><tr><th style="text-align:left">Línea</th>${thMonths}</tr></thead>
