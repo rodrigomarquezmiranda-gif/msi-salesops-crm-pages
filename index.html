@@ -629,6 +629,9 @@ try {
   html.theme-gold .sidebar-logo { border-bottom-color: #211F1C; }
   html.theme-gold .sidebar-logo .name span { color: var(--gold); }
   html.theme-gold .brand-mark { background: linear-gradient(145deg, #F1D8A7, #DBA34E 45%, #8E6A33); color: #131313; box-shadow: 0 4px 16px rgba(219,163,78,0.3); }
+  html.theme-gold .brand-mark-wrap .brand-mark-img.brand-mark-dragon { object-fit: contain; padding: 3px; box-sizing: border-box; background: #0B0B0B; border-radius: 9px; box-shadow: 0 0 0 1px rgba(219,163,78,0.45), 0 4px 16px rgba(219,163,78,0.25); }
+  html.theme-gold .brand-mark-wrap .brand-mark-overlay { border-radius: 9px; }
+  html.theme-gold .brand-mark-wrap, html.theme-gold .brand-mark-wrap .brand-mark-img.brand-mark-dragon { width: 40px; height: 40px; }
   html.theme-gold .nav-item { border-radius: 10px; min-height: 36px; transition: background var(--t1) var(--ease), color var(--t1) var(--ease), transform var(--t1) var(--ease), box-shadow var(--t1) var(--ease); }
   html.theme-gold .nav-item:hover { background: #1E1E1E; color: var(--text); transform: translateX(2px); }
   html.theme-gold .nav-item i { color: var(--text3) !important; transition: color var(--t1) var(--ease); }
@@ -2045,7 +2048,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '24.10.26.1';
+const APP_VERSION = '24.10.26.2';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
@@ -2808,8 +2811,12 @@ function applyBrandLogo() {
   const wrap = document.getElementById('brand-mark-wrap');
   const img = document.getElementById('brand-mark-img');
   const def = document.getElementById('brand-mark-default');
+  // Tema negro y dorado sin logo propio: el escudo con el dragón dorado del PDF del Semáforo
+  const goldDragon = document.documentElement.classList.contains('theme-gold') && !localStorage.getItem('salesops_brandlogo');
+  img.classList.toggle('brand-mark-dragon', goldDragon);
+  if(goldDragon) _pdfMsiLogoGold().then(l => { if(l && img.classList.contains('brand-mark-dragon')) img.src = l.data; });
   if(logo) {
-    img.src = logo;
+    if(!goldDragon) img.src = logo;
     img.style.display = 'block';
     def.style.display = 'none';
     wrap.classList.add('has-custom-logo');
