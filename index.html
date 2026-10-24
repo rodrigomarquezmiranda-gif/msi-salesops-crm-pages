@@ -468,10 +468,15 @@ if(new URLSearchParams(location.search).get('app') === 'luckia') {
     .main { margin-left: 0; }
 
     /* Topbar */
-    .topbar { padding: 0 14px; height: 54px; gap: 8px; }
+    /* El alto suma la franja de la isla/notch: con height fijo de 54px y border-box, el
+       padding-top del safe-area (~60px en iPhone Pro) se comía todo y la hamburguesa quedaba
+       debajo de la barra de estado, donde iOS no deja tocar */
+    .topbar { padding: env(safe-area-inset-top) calc(10px + env(safe-area-inset-right)) 0 calc(6px + env(safe-area-inset-left)); height: calc(54px + env(safe-area-inset-top)); gap: 8px; }
     .topbar-actions { gap: 6px; }
     .topbar-actions .btn:not(.btn-primary):not(#btn-hamburger) { display: none; }
-    #btn-hamburger { display: flex !important; }
+    /* Zona táctil de 44×44 (mínimo de Apple) sin agrandar el ícono */
+    #btn-hamburger { display: flex !important; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0 !important; flex-shrink: 0; border-color: transparent; background: transparent; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+    #btn-hamburger:active { background: var(--bg2); }
     .page-title { font-size: 15px; font-weight: 600; flex: 1; text-align: center; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     /* Content */
@@ -486,7 +491,7 @@ if(new URLSearchParams(location.search).get('app') === 'luckia') {
     /* Kanban → vertical stack */
     .board { flex-direction: column; gap: 14px; overflow-x: visible; }
     .column { min-width: unset; width: 100%; }
-    .column-header { position: sticky; top: 54px; z-index: 10; border-radius: var(--radius) var(--radius) 0 0; }
+    .column-header { position: sticky; top: calc(54px + env(safe-area-inset-top)); z-index: 10; border-radius: var(--radius) var(--radius) 0 0; }
 
     /* Field rows → stack */
     .field-row { grid-template-columns: 1fr !important; gap: 10px; }
@@ -542,8 +547,7 @@ if(new URLSearchParams(location.search).get('app') === 'luckia') {
     /* PI search */
     #pi-search-input { font-size: 14px; }
 
-    /* Safe area padding for notch iPhones */
-    .topbar { padding-top: env(safe-area-inset-top); }
+    /* Safe area padding for notch iPhones (la .topbar ya lo trae arriba) */
     .sidebar { padding-top: env(safe-area-inset-top); }
   }
 
@@ -1889,7 +1893,7 @@ const BADGE_MAP = {
 // ─── STATE ────────────────────────────────────────────
 // Versión: 1.DD.MM.YYYY.N  — DD/MM/YYYY = fecha del cambio, N = contador desde 1 cada día.
 // Al arrancar un día nuevo, el contador vuelve a 1. No continuar desde el N del día anterior.
-const APP_VERSION = '21.10.26.1';
+const APP_VERSION = '23.10.26.1';
 
 // ─── PARTICIÓN POR AÑO ───────────────────────────────
 // Cada año calendario usa sus propias claves en Firebase.
